@@ -49,6 +49,8 @@ Thumbs.db
 # Firebase Specific
 # ==========================================
 # Temporary generated CLI cache
+firebaseConfig.js
+
 .firebase/
 firebase-debug.log
 firebase-debug.*.log
