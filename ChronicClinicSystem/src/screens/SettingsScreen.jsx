@@ -17,7 +17,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../Context/SettingsContext';
 import AppDialog, { useDialog } from '../components/AppDialog';
 
 // ---------------------------------------------------------------------------
