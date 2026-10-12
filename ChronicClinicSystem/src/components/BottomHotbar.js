@@ -1,6 +1,8 @@
 import React from "react";
 import {
-    View, TouchableOpacity, StyleSheet,
+    View,
+    TouchableOpacity,
+    StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -72,7 +74,7 @@ export default function BottomHotbar({
                                 styles.button,
                                 isActive && styles.activeButton,
                             ]}
-                            onPress={() => onItemPress?.(item.key)}
+                            onPress={() => handleHotBarPress(item)}
                             activeOpacity={0.7}
                         >
                             <Ionicons name={item.icon} size={27} color="#111" />
@@ -94,21 +96,21 @@ const styles = StyleSheet.create({
     },
 
     hotbar: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    width: "100%",
-  },
+        flexDirection: "row",
+        justifyContent: "space-around",
+        alignItems: "center",
+        width: "100%",
+    },
 
   button: {
-    width: 50,
-    height: 50,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 25,
-  },
+        width: 50,
+        height: 50,
+        justifyContent: "center",
+        alignItems: "center",
+        borderRadius: 25,
+    },
 
   activeButton: {
-    backgroundColor: '#eeeeee',
-  },
+        backgroundColor: '#eeeeee',
+    },
 });

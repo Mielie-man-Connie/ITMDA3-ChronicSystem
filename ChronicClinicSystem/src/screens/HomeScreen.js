@@ -9,6 +9,8 @@ import {
 
 import BottomHotbar from "../components/BottomHotbar";
 
+import theme from "../components/theme";
+
 import {
     dummyCalendarData,
     dummyPatients,
@@ -135,9 +137,7 @@ function DoctorHome() {
             <View style={styles.patientActions}>
               <TouchableOpacity
                 style={styles.smallButton}
-                onPress={() =>
-                  console.log("Edit", patient.id)
-                }
+                onPress={() => console.log("Edit", patient.id)}
               >
                 <Text style={styles.smallButtonText}>
                   Edit
@@ -146,9 +146,7 @@ function DoctorHome() {
 
               <TouchableOpacity
                 style={styles.smallButton}
-                onPress={() =>
-                  console.log("Delete", patient.id)
-                }
+                onPress={() => console.log("Delete", patient.id)}
               >
                 <Text style={styles.smallButtonText}>
                   Delete
@@ -213,7 +211,7 @@ const styles = StyleSheet.create({
     },
 
     content: {
-    flex: 1,
+        flex: 1,
     },
 
     contentContainer: {
@@ -230,11 +228,11 @@ const styles = StyleSheet.create({
     },
 
     calendarCard: {
-    borderWidth: 1,
-    borderColor: "#333",
-    borderRadius: 14,
-    padding: 15,
-    marginBottom: 30,
+        borderWidth: 1,
+        borderColor: "#333",
+        borderRadius: 14,
+        padding: 15,
+        marginBottom: 30,
     },
 
     calendarItem: {
