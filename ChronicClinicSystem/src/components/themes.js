@@ -5,6 +5,8 @@ export const theme = {
     dark: '#1B263B',
     primary: '#415A77',
     secondary: '#778D7A',
+    primarybtn: '#538cce',
+    secondarybtn: '#8cd696',
     light: '#B4C4A8',
     background: '#F4F1DE',
     white: '#FFFFFF',
