@@ -31,11 +31,13 @@ import {
   getPatientAppointments,
 } from '../../services/firebase';
 
-// This is the hotbar component
+// Update this import path to wherever your BottomHotbar component lives
 import BottomHotbar from '../../components/BottomHotbar';
+import { theme } from '../../components/themes';
 
-// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// Helper — converts Firestore date values (Timestamp, ISO string, or Date) into a regular JavaScript Date object for display.
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper — converts Firestore date values (Timestamp, ISO string, or Date)
+// into a regular JavaScript Date object for display.
 // Returns null if the value is missing or invalid.
 function getAppointmentDate(value) {
   if (!value) return null;
@@ -46,18 +48,13 @@ function getAppointmentDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-type HomeScreenProps = {
-  navigation: any;
-};
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Main HomeScreen component
 // Loads user profile on mount, then fetches the right data for their role.
-// ─────────────────────────────────────────────────────────────────────────────
-export default function HomeScreen({ navigation }: HomeScreenProps) {
+export default function HomeScreen({ navigation }) {
   const [role, setRole] = useState('');
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [patients, setPatients] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState([]);
+  const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -68,29 +65,14 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
     async function loadHomeData() {
       try {
-
         // Step 1: get the signed-in user's Firestore profile (name, role, etc.)
-        const user = (await getCurrentUserProfile()) as {
-          role?: string;
-          id?: string;
-        } | null;
-
+        const user = await getCurrentUserProfile();
         if (!isActive) return;
-        if (!user) {
-          setError('User profile could not be loaded.');
-          return;
-        }
-
         setRole(user.role || '');
-                
 
         // Step 2: fetch data that matches the user's role
         if (user.role === 'p') {
           // Patient — only fetch their own appointments
-          if (!user.id) {
-            setError('User ID could not be loaded.');
-            return;
-          }
           const userAppointments = await getPatientAppointments(user.id);
           if (isActive) setAppointments(userAppointments);
 
@@ -372,7 +354,7 @@ function ReceptionistHome({ appointments, patients, navigation }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F4F1DE', // theme.colors.background
+    backgroundColor: theme.colors.background
   },
   content: {
     flex: 1,
@@ -388,18 +370,18 @@ const styles = StyleSheet.create({
   },
   messageText: {
     marginTop: 8,
-    color: '#778D7A',  // theme.colors.secondary
+    color: theme.colors.secondary,
     fontSize: 16,
     textAlign: 'center',
   },
   errorText: {
-    color: '#C0392B', // theme.colors.error
+    color: theme.colors.error,
     fontSize: 16,
     textAlign: 'center',
     padding: 24,
   },
   emptyText: {
-    color: '#778D7A', // theme.colors.secondary
+    color: theme.colors.secondary,
     fontSize: 14,
     textAlign: 'center',
     paddingVertical: 8,
@@ -410,15 +392,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 18,
     marginTop: 10,
-    color: '#0D1B2A', // theme.colors.darkest
+    color: theme.colors.darkest
   },
   calendarCard: {
     borderWidth: 1,
-    borderColor: '#1B263B', // theme.colors.dark
+    borderColor: theme.colors.dark,
     borderRadius: 14,
     padding: 15,
     marginBottom: 30,
-    backgroundColor: '#FFFFFF', // theme.colors.white
+    backgroundColor: theme.colors.white
   },
   calendarItem: {
     flexDirection: 'row',
@@ -428,17 +410,17 @@ const styles = StyleSheet.create({
   calendarLine: {
     height: 7,
     width: '30%',
-    backgroundColor: '#415A77', // theme.colors.primary
+    backgroundColor: theme.colors.primary,
     marginRight: 15,
   },
   appointmentTitle: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#0D1B2A', // theme.colors.darkest
+    color: theme.colors.darkest
   },
   appointmentDetails: {
     fontSize: 11,
-    color: '#778D7A', // theme.colors.secondary
+    color: theme.colors.secondary,
     marginTop: 2,
   },
   patientList: {
@@ -458,12 +440,12 @@ const styles = StyleSheet.create({
   patientLine: {
     height: 7,
     width: 55,
-    backgroundColor: '#415A77', // theme.colors.primary
+    backgroundColor: theme.colors.primary,
     marginRight: 12,
   },
   patientName: {
     fontSize: 12,
-    color: '#0D1B2A', // theme.colors.darkest
+    color: theme.colors.darkest
   },
   patientActions: {
     flexDirection: 'row',
@@ -471,20 +453,20 @@ const styles = StyleSheet.create({
   },
   smallButton: {
     borderWidth: 1,
-    borderColor: '#778D7A', // theme.colors.secondary
+    borderColor: theme.colors.secondary,
     borderRadius: 3,
     paddingVertical: 4,
     paddingHorizontal: 9,
-    backgroundColor: '#FFFFFF', // theme.colors.white
+    backgroundColor: theme.colors.white,
   },
   smallButtonText: {
     fontSize: 9,
-    color: '#0D1B2A', // theme.colors.darkest
+    color: theme.colors.darkest,
   },
   addPatientButton: {
     alignSelf: 'center',
     borderWidth: 1,
-    borderColor: '#778D7A', // theme.colors.secondary
+    borderColor: theme.colors.secondary,
     borderRadius: 3,
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -492,6 +474,6 @@ const styles = StyleSheet.create({
   },
   addPatientText: {
     fontSize: 10,
-    color: '#0D1B2A', // theme.colors.darkest
+    color: theme.colors.darkest
   },
 });

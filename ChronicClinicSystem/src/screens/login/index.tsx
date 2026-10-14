@@ -74,7 +74,7 @@ export default function LoginScreen() {
       >
         {/* App name and subtitle */}
         <View style={styles.header}>
-          <Text style={styles.appName}>KweziClinic</Text>
+          <Text style={styles.appName}>Chronic-Clinic</Text>
           <Text style={styles.subtitle}>Sign in to your account</Text>
         </View>
 

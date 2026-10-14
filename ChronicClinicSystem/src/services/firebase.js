@@ -1,10 +1,10 @@
-// firebase.js — Central Firebase service
-//
+// firebase.js — Central Firebase service layer
+// ─────────────────────────────────────────────────────────────────────────────
 // HOW TO USE THIS FILE:
 //   Import only the functions you need in each screen.
-//   NEVER directly call Firebase directly from a screen file
-//     - always go through these functions instead.
-//   This is done to keep all Firebase logic in one place.
+//   NEVER call Firebase directly from a screen file
+//   — always go through these functions instead.
+//   This keeps all Firebase logic in one place and makes it easy to update.
 //
 // EXAMPLE IMPORT:
 //   import { loginUser, getPatientAppointments } from '../../services/firebase';
@@ -13,7 +13,12 @@
 //   'p' = patient
 //   'd' = doctor
 //   'r' = receptionist
-
+//
+// LOCAL STORAGE / OFFLINE SUPPORT:
+//   AsyncStorage functions have been moved to cache.js.
+//   Import from there for anything that lives on the device:
+//   import { cacheAppointment, getLocalHealthData } from '../../services/cache';
+// ─────────────────────────────────────────────────────────────────────────────
 
 import {
   createUserWithEmailAndPassword,
@@ -33,39 +38,40 @@ import {
   orderBy,
   onSnapshot
 } from 'firebase/firestore';
-
-// This Initialises Firebase Auth and Firestore instances from the config file.
-// auth  - handles login sessions and account creation
-// db    - the Firestore database used for all reads and writes
 import { auth, db } from '../config/firebaseConfig';
+
+// cache.js handles all AsyncStorage (offline/local storage) operations.
+// bookAppointment imports cacheAppointment from here to store the token
+// locally after writing it to Firestore.
+import { cacheAppointment } from './cache';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section 1 - User authentication
-// The functions in this section are for creating accounts, signing in, and signing out.
-// These are also the first functions called when a user opens the app.
+// SECTION 1 — USER AUTHENTICATION
+// Functions for creating accounts, signing in, and signing out.
+// These are the first functions called when a user opens the app.
+// ─────────────────────────────────────────────────────────────────────────────
 
-
-/** registerUser Function
+/** registerUser
  * Creates a new Firebase Auth account and a matching Firestore profile document.
+ *
  * Call this on the Sign Up screen when the user submits the registration form.
- * The Firestore document is stored under users/{uid} and contains all profile data.
- * The Firebase Auth account only stores the email and password.
+ * The Firestore document is stored under users/{uid} and contains all profile
+ * data. The Firebase Auth account only stores the email and password.
  *
- * email (string)          - The user's required email address
- * password (string)       - The user's required password
- * additionalData (object) - Must include: name and phoneNumber
- *                                  Optional: role (string), but with otherwise default to 'p' (patient)
- * 
- * returns {Promise<import('firebase/auth').User>} Firebase Auth user object
- * throws If name or phoneNumber are missing, or if the email is already registered
+ * @param {string} email          - The user's email address
+ * @param {string} password       - The user's password (min 6 characters)
+ * @param {object} additionalData - Must include: name (string), phoneNumber (string)
+ *                                  Optional: role (string) — defaults to 'p' (patient)
+ * @returns {object} Firebase Auth user object containing uid, email, etc.
+ * @throws If name or phoneNumber are missing, or if the email is already registered
  *
- * EXAMPLE:
+ * Usage example:
  *   const user = await registerUser('jan@email.com', 'pass123', {
  *     name: 'Jan Botha',
  *     phoneNumber: '0821234567',
  *   });
- *   console.log(user.uid); // the new user's unique ID
+ *   console.log(user.uid);
  */
 export async function registerUser(email, password, additionalData = {}) {
   if (typeof email !== 'string' || !email.trim()) {
@@ -81,20 +87,18 @@ export async function registerUser(email, password, additionalData = {}) {
     throw new Error('Phone number is required to register a user.');
   }
 
-  // Creates the Firebase Auth account — this handles password hashing and session
+  // Create the Firebase Auth account — handles password hashing and session
   const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
   const user = userCredential.user;
-
   const timestamp = new Date().toISOString();
 
-  // Write the user profile to Firestore so screens can read display name,
-  // phone number, role, and verification status
+  // Write the user profile to Firestore so screens can read name, role, etc.
   await setDoc(doc(db, 'users', user.uid), {
     email: user.email,
     name: additionalData.name.trim(),
     phoneNumber: additionalData.phoneNumber.trim(),
     createdAt: timestamp,
-    role: additionalData.role || 'p', // defaults to patient
+    role: additionalData.role || 'p',
     updatedAt: timestamp,
     accountVerified: false,
   });
@@ -102,37 +106,38 @@ export async function registerUser(email, password, additionalData = {}) {
   return user;
 }
 
-
-/** Login Function 
+/** loginUser
  * Signs an existing user in with their email and password.
  *
- * This will be called on the Login screen.
- * On success, Firebase Auth stores the session automatically
- *   - the user stays logged in until logoutUser() is called.
- * UserContext listens for this change and updates the app navigation.
+ * Call this on the Login screen. On success, Firebase Auth stores the session
+ * automatically — the user stays logged in until logoutUser() is called.
+ * The auth listener in _layout.tsx detects this and redirects to /home.
  *
- * email (string)    - The user's registered email address
- * password (string) - The user's password
- * returns {Promise<import('firebase/auth').User>} Firebase Auth user object
- * throws If the email is not registered or the password is wrong
+ * @param {string} email    - The user's registered email address
+ * @param {string} password - The user's password
+ * @returns {object} Firebase Auth user object
+ * @throws If the email is not registered or the password is wrong
  *
- * Use Example:
+ * Usage example:
  *   const user = await loginUser('jan@email.com', 'pass123');
- *   console.log(user.uid);
  */
 export async function loginUser(email, password) {
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   return userCredential.user;
 }
 
-/** Logout Function
- * Signs the current user out and clears their local session.
+/** logoutUser
+ * Signs the current user out and clears their Firebase Auth session.
  *
- * Call this when the user taps the Logout button (in TopNavBar or Settings).
- * UserContext detects the sign-out and redirects to the Login screen automatically.
+ * Call this from the Settings or TopNavBar logout button.
+ * The auth listener in _layout.tsx detects the sign-out and redirects to /login.
  *
- * Use Example:
+ * NOTE: Also call clearAllLocalData() from cache.js after this to wipe
+ * the patient's locally stored appointments and health data from the device.
+ *
+ * Usage example:
  *   await logoutUser();
+ *   await clearAllLocalData(); // imported from cache.js
  */
 export async function logoutUser() {
   await signOut(auth);
@@ -140,23 +145,23 @@ export async function logoutUser() {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section 2 — User Profile Management
-// Functions for reading and updating the Firestore profile documents.
+// SECTION 2 — USER PROFILE MANAGEMENT
+// Functions for reading and updating Firestore profile documents.
 // Use these whenever a screen needs to display or change user information.
+// ─────────────────────────────────────────────────────────────────────────────
 
-/** getUserById Function
+/** getUserById
  * Fetches a user's full profile document from Firestore by their UID.
  *
- * Use this after login to get the user's name, role, phone number, and
- * verification status. UserContext calls this automatically on login, so most
- * screens can read from UserContext instead of calling this directly.
+ * Use this when you have a specific user's UID and need their profile.
+ * For the currently signed-in user, use getCurrentUserProfile() instead.
  *
- * uid (string)     - The Firebase Auth user ID (available as user.uid)
- * @returns {object} The user's Firestore profile including id, name, email,
- *                   phoneNumber, role, accountVerified, createdAt, updatedAt
+ * @param {string} uid - The Firebase Auth user ID
+ * @returns {object} Profile object with id, name, email, phoneNumber, role,
+ *                   accountVerified, createdAt, updatedAt
  * @throws If no document exists for that UID
  *
- * Use Example:
+ * Usage example:
  *   const profile = await getUserById('abc123');
  *   console.log(profile.name);  // 'Jan Botha'
  *   console.log(profile.role);  // 'p'
@@ -170,27 +175,37 @@ export async function getUserById(uid) {
   throw new Error('User profile not found');
 }
 
-// Loads the Firestore profile for whoever is currently signed in.
+/** getCurrentUserProfile
+ * Loads the Firestore profile for whoever is currently signed in.
+ *
+ * Use this in screens that need the logged-in user's data without having
+ * to pass the uid around. HomeScreen and ProfileScreen both use this.
+ *
+ * @returns {object} Same shape as getUserById — includes id, name, role, etc.
+ * @throws If no user is signed in
+ *
+ * Usage example:
+ *   const user = await getCurrentUserProfile();
+ *   console.log(user.role); // 'p', 'd', or 'r'
+ */
 export async function getCurrentUserProfile() {
   const user = auth.currentUser;
   if (!user) throw new Error('No user is signed in.');
   return getUserById(user.uid);
 }
 
-/** updateUserProfile Function
+/** updateUserProfile
  * Updates one or more editable fields on a user's Firestore profile.
  *
- * This will be called from the Profile/Settings screen when the user saves changes to their name
- * or phone number. Email and accountVerified cannot be changed through this function
- *   — those have their own dedicated functions.
- *
- * Allowed fields: 'name', 'phoneNumber', 'role'
+ * Call this from the Profile/Settings screen when the user saves changes.
+ * Only name, phoneNumber, and role can be changed through this function.
+ * Email and accountVerified have their own dedicated functions.
  *
  * @param {string} uid           - The Firebase Auth UID of the user to update
- * @param {object} updatedFields - Key-value pairs of the fields to change
- * @throws If no valid fields are provided or if any value is empty
+ * @param {object} updatedFields - Key-value pairs of fields to change
+ * @throws If no valid fields are provided or any value is empty
  *
- * Use Example:
+ * Usage example:
  *   await updateUserProfile('abc123', { name: 'Jan van Botha' });
  *   await updateUserProfile('abc123', { name: 'Jan', phoneNumber: '0829999999' });
  */
@@ -210,24 +225,29 @@ export async function updateUserProfile(uid, updatedFields) {
   });
 }
 
-/** activatePatientAccount Function
- * Marks the patient's account as verified after the doctor issues an activation QR.
+/** activatePatientAccount
+ * Marks a patient's account as verified after the doctor issues an activation QR.
  *
- * Call this from the QR scanner screen after the patient successfully scans the doctor's activation QR code.
- * This is the step that unlocks appointment booking for the patient.
+ * Call this from the QR scanner screen after the patient scans the doctor's
+ * activation QR code. This unlocks appointment booking for the patient.
+ * Also call saveLocalHealthData() from cache.js to store the chronic data
+ * from the QR on the device.
  *
  * @param {string} uid - The UID of the patient being activated
  *
- * Use Example:
+ * Usage example:
  *   await activatePatientAccount('abc123');
- *   // Patient can now book appointments
+ *   await saveLocalHealthData(conditions, medications); // from cache.js
  */
 export async function activatePatientAccount(uid) {
   if (typeof uid !== 'string' || !uid.trim()) {
     throw new Error('A user UID is required to verify an account.');
   }
   const docRef = doc(db, 'users', uid);
-  await updateDoc(docRef, {accountVerified: true, updatedAt: new Date().toISOString()});
+  await updateDoc(docRef, {
+    accountVerified: true,
+    updatedAt: new Date().toISOString()
+  });
 }
 
 
@@ -235,62 +255,109 @@ export async function activatePatientAccount(uid) {
 // SECTION 3 — APPOINTMENT MANAGEMENT
 // Functions for booking, reading, and cancelling appointments.
 // Used by the Calendar and Booking screens on the patient side.
+// ─────────────────────────────────────────────────────────────────────────────
 
-/** bookAppointment Function
- *  Creates a new appointment document in Firestore.
+/** bookAppointment
+ * Creates a new appointment document and a matching token in Firestore,
+ * then caches the token locally on the device for offline QR display.
  *
  * Call this from the BookingScreen when the patient confirms their booking.
- * All five fields are required — the function throws if any are missing.
- * The appointment starts with its status as 'booked' and changes to 'checked-in' when the patient scans in at the clinic.
+ * The returned tokenCode is what gets drawn as a QR code on the QR screen.
+ * The local cache write means the QR screen works without internet at the clinic.
  *
  * @param {string} patientId           - UID of the patient making the booking
- * @param {object} appointmentDetails  - Must include:
+ * @param {object} appointmentDetails  - Must include all of the following:
  *   @param {string} appointmentDate   - ISO date string e.g. '2026-10-15T09:00:00.000Z'
  *   @param {string} appointmentType   - e.g. 'chronic check-up' or 'medication collection'
  *   @param {string} clinicId          - Firestore ID of the clinic document
  *   @param {string} timeSlot          - e.g. '09:00-09:15'
- * @returns {string} The Firestore document ID of the new appointment
- * @throws If any required field is missing or if the date is not a valid ISO string
+ * @returns {{ appointmentId: string, tokenCode: string }}
+ * @throws If any required field is missing or appointmentDate is invalid
  *
- * Use Example:
- *   const appointmentId = await bookAppointment('abc123', {
+ * Usage example:
+ *   const { appointmentId, tokenCode } = await bookAppointment('abc123', {
  *     clinicId: 'clinic456',
  *     appointmentDate: '2026-10-15T09:00:00.000Z',
  *     timeSlot: '09:00-09:15',
  *     appointmentType: 'chronic check-up',
  *   });
+ *   // tokenCode is now cached locally — QR screen can show it without internet
  */
 export async function bookAppointment(patientId, appointmentDetails) {
   const { appointmentDate, appointmentType, clinicId, timeSlot } = appointmentDetails;
   if (!patientId || !appointmentDate || !appointmentType || !clinicId || !timeSlot) {
     throw new Error('Patient, clinic, date, time slot, and appointment type are required.');
   }
-  const parsedAppointmentDate = new Date(appointmentDate);
-  if (Number.isNaN(parsedAppointmentDate.getTime())) {
+  const parsedDate = new Date(appointmentDate);
+  if (Number.isNaN(parsedDate.getTime())) {
     throw new Error('Appointment date must be a valid date/time.');
   }
-  const docRef = await addDoc(collection(db, 'appointments'), {
+
+  // Write the appointment to Firestore
+  const appointmentRef = await addDoc(collection(db, 'appointments'), {
     patientId,
     status: 'booked',
     createdAt: new Date().toISOString(),
-    appointmentDate: parsedAppointmentDate.toISOString(),
+    appointmentDate: parsedDate.toISOString(),
     appointmentType,
     clinicId,
     timeSlot,
   });
-  return docRef.id;
+
+  // Generate a unique token code — this string is what the QR encodes
+  // Combines timestamp base-36 + random suffix for uniqueness
+  const tokenCode = `${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .substring(2, 8)}`.toUpperCase();
+
+  // Token expires at 23:59:59 on the appointment day
+  const expiry = new Date(parsedDate);
+  expiry.setHours(23, 59, 59, 999);
+
+  // Write the token to Firestore — receptionist validates against this
+  await addDoc(collection(db, 'tokens'), {
+    appointmentId: appointmentRef.id,
+    patientId,
+    tokenCode,
+    expiresAt: expiry.toISOString(),
+    isUsed: false,
+    usedAt: null,
+    createdAt: new Date().toISOString(),
+  });
+
+  // Cache the appointment and tokenCode locally on the device.
+  // This is what makes the QR screen work offline at the clinic.
+  // If caching fails, the booking still succeeded — the patient can refresh
+  // later when they have internet to re-download their token.
+  try {
+    await cacheAppointment({
+      appointmentId: appointmentRef.id,
+      tokenCode,
+      appointmentDate: parsedDate.toISOString(),
+      timeSlot,
+      clinicId,
+      clinicName: appointmentDetails.clinicName || '',
+      appointmentType,
+      status: 'booked',
+    });
+  } catch (cacheError) {
+    // Log but do not throw — the Firestore write succeeded, which is what matters
+    console.warn('[bookAppointment] Local cache write failed:', cacheError);
+  }
+
+  return { appointmentId: appointmentRef.id, tokenCode };
 }
 
-/** getPatientAppointments Function
+/** getPatientAppointments
  * Fetches all appointments belonging to a specific patient, newest first.
  *
- * Call this from the CalendarScreen and HomeScreen to display the patient's upcoming and past appointments.
+ * Call this from CalendarScreen and HomeScreen to show the patient's schedule.
  * Returns an empty array if none exist.
  *
  * @param {string} patientId - UID of the patient whose appointments to fetch
- * @returns {Array} List of appointment objects, each with id and all Firestore fields
+ * @returns {Array} List of appointment objects with id and all Firestore fields
  *
- * Use Example:
+ * Usage example:
  *   const appointments = await getPatientAppointments('abc123');
  *   appointments.forEach(appt => console.log(appt.timeSlot, appt.status));
  */
@@ -302,23 +369,27 @@ export async function getPatientAppointments(patientId) {
   );
   const querySnapshot = await getDocs(q);
   const appointments = [];
-  querySnapshot.forEach((doc) => {
-    appointments.push({ id: doc.id, ...doc.data() });
+  querySnapshot.forEach((document) => {
+    appointments.push({ id: document.id, ...document.data() });
   });
   return appointments;
 }
 
-/** cancelAppointment Function
- * Changes an appointment's status to 'cancelled'.
+/** cancelAppointment
+ * Changes an appointment's status to 'cancelled' in Firestore.
  *
  * Call this when the patient taps Cancel on the AppointmentDetailScreen.
- * The appointment document remains in Firestore with status 'cancelled'
- * rather than being deleted, so there is a record it existed.
+ * The appointment document remains in Firestore for record-keeping.
  *
- * @param {string} appointmentId - Firestore document ID of the appointment to cancel
+ * IMPORTANT: Also call updateCachedAppointmentStatus() from cache.js so the
+ * local copy on the device is updated and the QR screen does not show a QR
+ * for a cancelled appointment.
  *
- * Use Example:
+ * @param {string} appointmentId - Firestore document ID of the appointment
+ *
+ * Usage example:
  *   await cancelAppointment('appt789');
+ *   await updateCachedAppointmentStatus('appt789', 'cancelled'); // from cache.js
  */
 export async function cancelAppointment(appointmentId) {
   const docRef = doc(db, 'appointments', appointmentId);
@@ -327,23 +398,79 @@ export async function cancelAppointment(appointmentId) {
   });
 }
 
+/** getAllAppointments
+ * Returns every appointment in Firestore, sorted by date ascending.
+ *
+ * Used by the doctor and receptionist home screens to show a full schedule.
+ * Patients should use getPatientAppointments() instead.
+ *
+ * @returns {Array} All appointment objects sorted by appointmentDate
+ */
+export async function getAllAppointments() {
+  const snapshot = await getDocs(collection(db, 'appointments'));
+  return snapshot.docs
+    .map((document) => ({ id: document.id, ...document.data() }))
+    .sort((a, b) => {
+      const aDate = a.appointmentDate?.toDate
+        ? a.appointmentDate.toDate().getTime()
+        : new Date(a.appointmentDate || 0).getTime();
+      const bDate = b.appointmentDate?.toDate
+        ? b.appointmentDate.toDate().getTime()
+        : new Date(b.appointmentDate || 0).getTime();
+      return aDate - bDate;
+    });
+}
+
+/** getAppointmentsForDate
+ * Returns appointments on a specific calendar day, optionally for one patient.
+ *
+ * Used by the CalendarScreen to show appointments when the user taps a date.
+ *
+ * @param {Date}   date      - The calendar day to look up
+ * @param {string} patientId - Optional. If provided, filters to one patient's appointments.
+ *                             If omitted, returns all appointments on that day.
+ * @returns {Array} Appointments whose appointmentDate falls on the given day
+ *
+ * Usage example:
+ *   const appointments = await getAppointmentsForDate(new Date(), 'abc123');
+ */
+export async function getAppointmentsForDate(date, patientId) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    throw new Error('A valid Date object is required.');
+  }
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const end = start + 24 * 60 * 60 * 1000;
+
+  const all = patientId
+    ? await getPatientAppointments(patientId)
+    : await getAllAppointments();
+
+  return all.filter((appointment) => {
+    const d = appointment.appointmentDate?.toDate
+      ? appointment.appointmentDate.toDate()
+      : new Date(appointment.appointmentDate);
+    const t = d.getTime();
+    return !Number.isNaN(t) && t >= start && t < end;
+  });
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section 4 — Queue & check-in management
-// Functions for the receptionist's queue dashboard and patient check-in flow.
-// The receptionist screen uses subscribeToQueue for live updates.
+// SECTION 4 — QUEUE AND CHECK-IN MANAGEMENT
+// Functions for the receptionist's queue dashboard and patient check-in.
+// ─────────────────────────────────────────────────────────────────────────────
 
-/** validateCheckInToken Function
- * Checks whether a scanned token code is valid and has not been used yet.
+/** validateCheckInToken
+ * Checks whether a scanned token code exists and has not been used yet.
  *
  * Call this from ScannerScreen after the receptionist scans a patient's QR code.
- * Returns an object with isValid: true/false and the token data if found.
- * Does NOT mark the token as used — call a separate update if you need that.
+ * Returns { isValid: true, data, id } if valid, { isValid: false } if not.
+ * Does NOT mark the token as used — call updateDoc separately if needed.
  *
  * @param {string} token - The raw token code string scanned from the patient's QR
- * @returns {object} { isValid: boolean, data: object|undefined, id: string|undefined }
+ * @returns {{ isValid: boolean, data?: object, id?: string }}
  *
- * Use Example:
+ * Usage example:
  *   const result = await validateCheckInToken('ABC12345');
  *   if (result.isValid) {
  *     console.log('Patient can check in:', result.data.patientId);
@@ -365,158 +492,71 @@ export async function validateCheckInToken(token) {
   return { isValid: false };
 }
 
-/** subscribeToQueue Function
- * Subscribes to the queue collection and fires a callback whenever it changes.
+/** subscribeToQueue
+ * Subscribes to the queue collection and calls the callback whenever it changes.
  *
- * This will be called this from QueueDashboardScreen inside a useEffect.
- * The callback fires immediately with the current queue and then again every time a patient checks in or a status changes.
- * IMPORTANT: call the returned unsubscribe function when the screen unmounts, or you will have a memory leak.
+ * Call this from QueueDashboardScreen inside a useEffect. The callback fires
+ * immediately with current data and again on every change. Always call the
+ * returned unsubscribe function in the useEffect cleanup to prevent memory leaks.
  *
  * @param {function} callback - Called with an array of queue entry objects
- *                              whenever the queue changes
- * @returns {import('firebase/firestore').Unsubscribe} unsubscribe — call in effect cleanup
- *  
- * Useage Example:
+ * @returns {function} unsubscribe — call this in the useEffect cleanup
+ *
+ * Usage example:
  *   useEffect(() => {
  *     const unsubscribe = subscribeToQueue((entries) => {
  *       setQueueEntries(entries);
  *     });
- *     return () => unsubscribe(); // ← this line prevents memory leaks
+ *     return () => unsubscribe(); // prevents memory leaks
  *   }, []);
  */
 export function subscribeToQueue(callback) {
   const q = query(collection(db, 'queue'));
   return onSnapshot(q, (snapshot) => {
-    const queueEntries = [];
-    snapshot.forEach((doc) => {
-      queueEntries.push({ id: doc.id, ...doc.data() });
+    const entries = [];
+    snapshot.forEach((document) => {
+      entries.push({ id: document.id, ...document.data() });
     });
-    callback(queueEntries);
+    callback(entries);
   });
 }
 
-/** updateQueueStatus Function
- * This updates the status of a single entry in the queue collection.
+/** updateQueueStatus
+ * Updates the status of one entry in the queue collection.
  *
- * Call this when the receptionist taps "Mark as Seen" or another status button on the QueueDashboardScreen.
- * Common status values: 'waiting', 'called', 'seen'.
+ * Call this when the receptionist taps Mark as Seen or another status button.
+ * Common values: 'waiting', 'called', 'seen', 'missed'.
  *
- * @param {string} entryId  - Firestore document ID of the queue entry to update
- * @param {string} newStatus - The new status string to set
+ * @param {string} entryId   - Firestore document ID of the queue entry
+ * @param {string} newStatus - The new status string
  *
- * EXAMPLE:
+ * Usage example:
  *   await updateQueueStatus('queueEntry001', 'seen');
  */
 export async function updateQueueStatus(entryId, newStatus) {
   const docRef = doc(db, 'queue', entryId);
-  await updateDoc(docRef, {
-    status: newStatus
-  });
+  await updateDoc(docRef, { status: newStatus });
 }
 
-/** getClinicPatients Function
- * Fetches all users with role 'p' (patient) from Firestore.
+/** addPatientToQueue
+ * Adds a patient to the root queue collection after a successful check-in.
  *
- * Call this from the PatientManagementScreen on the doctor side
- * to show the doctor a list of all registered patients. 
- * Returns an empty array if none exist.
+ * Call this from ScannerScreen after validateCheckInToken() returns isValid: true.
  *
- * @returns {Array} List of patient profile objects, each with id and Firestore fields
+ * @param {{ appointmentId: string, patientId: string, patientName: string }}
+ * @returns {string} The new Firestore document ID for the queue entry
  *
- * EXAMPLE:
- *   const patients = await getClinicPatients();
- *   patients.forEach(patient => console.log(patient.name));
+ * Usage example:
+ *   const queueId = await addPatientToQueue({
+ *     appointmentId: 'appt123',
+ *     patientId: 'uid456',
+ *     patientName: 'Jan Botha',
+ *   });
  */
-export async function getClinicPatients() {
-  // Query the users collection for documents where role is 'p' (patient)
-  const q = query(
-    collection(db, 'users'),
-    where('role', '==', 'p')
-  );
-
-  const querySnapshot = await getDocs(q);
-  const patients = [];
-  querySnapshot.forEach((doc) => {
-    patients.push({ id: doc.id, ...doc.data() });
-  });
-  return patients;
-}
-
-// This function finds users whose names contain the search text, without case sensitivity.
-export async function searchUsersByName(searchText) {
-  const search = typeof searchText === 'string' ? searchText.trim().toLowerCase() : '';
-  if (!search) return [];
-
-  const snapshot = await getDocs(collection(db, 'users'));
-  return snapshot.docs
-    .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
-    .filter((user) => (user.name || '').toLowerCase().includes(search))
-    .sort((first, second) => (first.name || '').localeCompare(second.name || ''));
-}
-
-// This function saves a clinic using the fields expected by the clinics collection.
-export async function createClinic({ address, dailySlotCapacity, name, province }) 
-{
-  // Basic input validation: check required fields and ensure dailySlotCapacity is positive / not less than 1.
-  if (!address?.trim() || !name?.trim() || !province?.trim()) {
-    throw new Error('Address, clinic name, and province are required.');
-  }
-  const capacity = Number(dailySlotCapacity);
-  if (!Number.isInteger(capacity) || capacity < 1) {
-    throw new Error('Daily slot capacity must be a positive whole number.');
-  }
-
-  // Adds the clinic document to the 'clinics' collection in Firestore.
-  const reference = await addDoc(collection(db, 'clinics'), 
-  {
-    address: address.trim(),
-    dailySlotCapacity: capacity,
-    name: name.trim(),
-    province: province.trim(),
-  });
-  return reference.id;
-}
-
-// This function saves an emergency contact number linked to a clinic.
-export async function createEmergencyNumber({ clinicId, number }) 
-{
-  // Basic validation check
-  if (!clinicId?.trim() || !number?.trim()) {
-    throw new Error('Clinic ID and emergency number are required.');
-  }
-
-  // Adds the emergency number document to the 'numbers' collection in Firestore.
-  const reference = await addDoc(collection(db, 'numbers'), {
-    clinicId: clinicId.trim(),
-    number: number.trim(),
-  });
-  return reference.id;
-}
-
-// This function creates a notification for a patient; new notifications start as pending.
-export async function createNotification({ deliveryStatus = 'pending', message, patientId })
-{
-  // Basic validation check
-  if (!message?.trim() || !patientId?.trim() || !deliveryStatus?.trim()) {
-    throw new Error('Delivery status, message, and patient ID are required.');
-  }
-
-  // Adds the notification document to the 'notifications' collection in Firestore.
-  const reference = await addDoc(collection(db, 'notifications'), {
-    deliveryStatus: deliveryStatus.trim(),
-    message: message.trim(),
-    patientId: patientId.trim(),
-  });
-  return reference.id;
-}
-
-// This function adds a patient to the root queue collection using the queue document schema.
-export async function addPatientToQueue({ appointmentId, patientId, patientName })
-{
+export async function addPatientToQueue({ appointmentId, patientId, patientName }) {
   if (!appointmentId?.trim() || !patientId?.trim() || !patientName?.trim()) {
     throw new Error('Appointment ID, patient ID, and patient name are required.');
   }
-
   const reference = await addDoc(collection(db, 'queue'), {
     appointmentId: appointmentId.trim(),
     patientId: patientId.trim(),
@@ -526,161 +566,157 @@ export async function addPatientToQueue({ appointmentId, patientId, patientName 
   return reference.id;
 }
 
-// Returns every appointment. The screen uses this to build its calendars.
-export async function getAllAppointments()
-{
-  const snapshot = await getDocs(collection(db, 'appointments'));
-  return snapshot.docs
-    .map((appointmentDoc) => ({ id: appointmentDoc.id, ...appointmentDoc.data() }))
-    .sort((first, second) => {
-      const firstValue = first.appointmentDate;
-      const secondValue = second.appointmentDate;
-      const firstDate = firstValue?.toDate
-        ? firstValue.toDate().getTime()
-        : new Date(firstValue || 0).getTime();
-      const secondDate = secondValue?.toDate
-        ? secondValue.toDate().getTime()
-        : new Date(secondValue || 0).getTime();
-      return firstDate - secondDate;
-    });
-}
 
-// Reads the documents from each main collection for the management screen.
-// Each collection reports its own error so one denied read does not hide the others.
-export async function getFirestoreCollections() {
-  const names = ['appointments', 'clinics', 'notifications', 'numbers', 'queue', 'tokens', 'users'];
-  return Promise.all(names.map(async (name) => {
-    try {
-      const snapshot = await getDocs(collection(db, name));
-      return {
-        name,
-        documents: snapshot.docs.map((document) => ({
-          id: document.id,
-          data: document.data(),
-        })),
-      };
-    } catch (error) {
-      return {
-        name,
-        documents: [],
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }));
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 5 — USER AND PATIENT QUERIES
+// Utility queries used by doctor and admin screens.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Returns appointments on a selected local calendar day, optionally for one patient.
-export async function getAppointmentsForDate(date, patientId) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    throw new Error('A valid date is required.');
-  }
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const end = start + 24 * 60 * 60 * 1000;
-  const appointments = patientId
-    ? await getPatientAppointments(patientId)
-    : await getAllAppointments();
-
-  return appointments.filter((appointment) => {
-    const appointmentDate = appointment.appointmentDate?.toDate
-      ? appointment.appointmentDate.toDate()
-      : new Date(appointment.appointmentDate);
-    const time = appointmentDate.getTime();
-    return !Number.isNaN(time) && time >= start && time < end;
+/** getClinicPatients
+ * Fetches all users with role 'p' (patient) from Firestore.
+ *
+ * Call this from PatientManagementScreen and the doctor's HomeScreen.
+ * Returns an empty array if no patients are registered.
+ *
+ * @returns {Array} List of patient profile objects
+ *
+ * Usage example:
+ *   const patients = await getClinicPatients();
+ *   patients.forEach(p => console.log(p.name));
+ */
+export async function getClinicPatients() {
+  const q = query(
+    collection(db, 'users'),
+    where('role', '==', 'p')
+  );
+  const querySnapshot = await getDocs(q);
+  const patients = [];
+  querySnapshot.forEach((document) => {
+    patients.push({ id: document.id, ...document.data() });
   });
+  return patients;
+}
+
+/** searchUsersByName
+ * Finds users whose names contain the search text (case-insensitive).
+ *
+ * Used by the doctor's patient search bar. Fetches all users and filters
+ * client-side since Firestore does not support native case-insensitive search.
+ *
+ * @param {string} searchText - The text to search for in user names
+ * @returns {Array} Matching user profiles sorted alphabetically by name
+ *
+ * Usage example:
+ *   const matches = await searchUsersByName('jan');
+ */
+export async function searchUsersByName(searchText) {
+  const search = typeof searchText === 'string' ? searchText.trim().toLowerCase() : '';
+  if (!search) return [];
+  const snapshot = await getDocs(collection(db, 'users'));
+  return snapshot.docs
+    .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
+    .filter((user) => (user.name || '').toLowerCase().includes(search))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section 5 — Local storage and Health data
-//
-// Chronic illness data (conditions, medications) is deliberately NOT stored in Firestore.
-// It lives only on the patient's device.
-// This avoids storing sensitive medical data in the cloud
-// and reduces POPIA compliance obligations at the server level.
-//
-// How it would work:
-// 1. Doctor enters the patient's chronic data on the PatientManagementScreen
-// 2. Doctor generates an activation QR encoding that data as JSON
-// 3. Patient scans the QR — data is decoded and saved in AsyncStorage
-// 4. Only a boolean 'isChronicVerified' is ever sent to the server
+// SECTION 6 — CLINIC AND ADMIN MANAGEMENT
+// Functions for creating clinics, emergency numbers, and notifications.
+// ─────────────────────────────────────────────────────────────────────────────
 
-
-
-//─────────────────────────────────────────────────────────────────────────
-//|     NOTE: AsyncStorage is not yet implemented — these are stubs.      |
-//|   When AsyncStorage is added, import it at the top of the page via:   |
-//| import AsyncStorage from '@react-native-async-storage/async-storage'; |
-//─────────────────────────────────────────────────────────────────────────
-
-
-
-/**SaveLocalHealthData Function
- * Saves health data to the patient's local device storage.
+/** createClinic
+ * Saves a new clinic document to the clinics collection.
  *
- * This will be called from the QR scanner screen after the patient scans the doctor's activation QR.
- * The decoded JSON from the QR becomes the 'data' argument.
- * IMPORTANT: This data will never leave the device.
- *
- * @param {string} key  - Storage key to save under (e.g. 'chronicConditions')
- * @param {any}    data - The data to store (will be serialised to JSON)
- *
- * usage example:
- *   await saveLocalHealthData('chronicConditions', ['Hypertension', 'Diabetes']);
- *   await saveLocalHealthData('medicationList', ['Metformin 500mg']);
- *
- * TODO: Replace the console.log with AsyncStorage.setItem when ready:
- *   await AsyncStorage.setItem(key, JSON.stringify(data));
+ * @param {{ address: string, dailySlotCapacity: number, name: string, province: string }}
+ * @returns {string} The new Firestore document ID
  */
-export async function saveLocalHealthData(key, data) {
-  console.log(`[Cache]: Saving health data locally for key: ${key}`);
-  // TODO: await AsyncStorage.setItem(key, JSON.stringify(data));
-  return true;
+export async function createClinic({ address, dailySlotCapacity, name, province }) {
+  if (!address?.trim() || !name?.trim() || !province?.trim()) {
+    throw new Error('Address, clinic name, and province are required.');
+  }
+  const capacity = Number(dailySlotCapacity);
+  if (!Number.isInteger(capacity) || capacity < 1) {
+    throw new Error('Daily slot capacity must be a positive whole number.');
+  }
+  const reference = await addDoc(collection(db, 'clinics'), {
+    address: address.trim(),
+    dailySlotCapacity: capacity,
+    name: name.trim(),
+    province: province.trim(),
+  });
+  return reference.id;
 }
 
-/** getLocalHealthData Function
- * This will read health data from the patient's local device storage.
+/** createEmergencyNumber
+ * Saves an emergency contact number linked to a clinic.
  *
- * Call this from the QR display screen or home screen 
- * when you need to show the patient's conditions or check their verification status.
- *
- * @param {string} key - The same key used when saving (e.g. 'chronicConditions')
- * @returns {any} The stored data, or null if nothing has been saved for that key
- *
- * usage example:
- *   const conditions = await getLocalHealthData('chronicConditions');
- *   console.log(conditions); // ['Hypertension', 'Diabetes']
- *
- * TODO: Replace the console.log with AsyncStorage.getItem when ready:
- *   const raw = await AsyncStorage.getItem(key);
- *   return raw ? JSON.parse(raw) : null;
+ * @param {{ clinicId: string, number: string }}
+ * @returns {string} The new Firestore document ID
  */
-export async function getLocalHealthData(key) {
-  console.log(`[Cache]: Reading health data for key: ${key}`);
-  // TODO: const raw = await AsyncStorage.getItem(key); return raw ? JSON.parse(raw) : null;
-  return null;
+export async function createEmergencyNumber({ clinicId, number }) {
+  if (!clinicId?.trim() || !number?.trim()) {
+    throw new Error('Clinic ID and emergency number are required.');
+  }
+  const reference = await addDoc(collection(db, 'numbers'), {
+    clinicId: clinicId.trim(),
+    number: number.trim(),
+  });
+  return reference.id;
 }
 
-/** getCachedAppointments Function
- * Reads the locally cached appointments from device storage.
+/** createNotification
+ * Creates a notification document for a patient.
+ * New notifications start with deliveryStatus 'pending'.
  *
- * Call this from the QR display screen to get the patient's token code without needing an internet connection.
- * Appointments are cached here automatically when bookAppointment() is called
- * (once AsyncStorage is implemented).
- *
- * @returns {Array} List of cached appointment objects, or empty array if none
- *
- * usage example:
- *   const cached = await getCachedAppointments();
- *   const next = cached.find(a => a.status === 'booked');
- *   // Use next.tokenCode to display the QR code offline
- *
- * TODO: Replace the console.log with AsyncStorage.getItem when ready:
- *   const raw = await AsyncStorage.getItem('cachedAppointments');
- *   return raw ? JSON.parse(raw) : [];
+ * @param {{ deliveryStatus?: string, message: string, patientId: string }}
+ * @returns {string} The new Firestore document ID
  */
-export async function getCachedAppointments() {
-  console.log('[Cache]: Reading cached appointments from local storage.');
-  // TODO: const raw = await AsyncStorage.getItem('cachedAppointments');
-  //       return raw ? JSON.parse(raw) : [];
-  return [];
+export async function createNotification({ deliveryStatus = 'pending', message, patientId }) {
+  if (!message?.trim() || !patientId?.trim() || !deliveryStatus?.trim()) {
+    throw new Error('Delivery status, message, and patient ID are required.');
+  }
+  const reference = await addDoc(collection(db, 'notifications'), {
+    deliveryStatus: deliveryStatus.trim(),
+    message: message.trim(),
+    patientId: patientId.trim(),
+  });
+  return reference.id;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 7 — DEVELOPMENT AND ADMIN UTILITIES
+// Used by the fbtest screen. Not needed in production screens.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** getFirestoreCollections
+ * Reads documents from every main collection.
+ * Used by the fbtest screen to inspect the database.
+ * Each collection reports its own error so one denied read does not hide others.
+ *
+ * @returns {Array} Array of { name, documents, error? } objects
+ */
+export async function getFirestoreCollections() {
+  const names = ['appointments', 'clinics', 'notifications', 'numbers', 'queue', 'tokens', 'users'];
+  return Promise.all(
+    names.map(async (name) => {
+      try {
+        const snapshot = await getDocs(collection(db, name));
+        return {
+          name,
+          documents: snapshot.docs.map((document) => ({
+            id: document.id,
+            data: document.data(),
+          })),
+        };
+      } catch (error) {
+        return {
+          name,
+          documents: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    })
+  );
 }

@@ -33,18 +33,19 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        // Use your theme colours directly instead of react-navigation theme objects
-        contentStyle: {
-          backgroundColor: colorScheme === 'dark'
-            ? theme.colors.darkest
-            : theme.colors.background,
-        },
-      }}
-    >
+    <>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          // Use your theme colours directly instead of react-navigation theme objects
+          contentStyle: {
+            backgroundColor: colorScheme === 'dark'
+              ? theme.colors.darkest
+              : theme.colors.background,
+          },
+        }}
+      />
       <AnimatedSplashOverlay />
-    </Stack>
+    </>
   );
 }
