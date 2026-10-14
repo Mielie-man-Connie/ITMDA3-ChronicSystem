@@ -170,6 +170,13 @@ export async function getUserById(uid) {
   throw new Error('User profile not found');
 }
 
+// Loads the Firestore profile for whoever is currently signed in.
+export async function getCurrentUserProfile() {
+  const user = auth.currentUser;
+  if (!user) throw new Error('No user is signed in.');
+  return getUserById(user.uid);
+}
+
 /** updateUserProfile Function
  * Updates one or more editable fields on a user's Firestore profile.
  *

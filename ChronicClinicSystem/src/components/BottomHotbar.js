@@ -2,7 +2,9 @@ import React from "react";
 import {
     View, TouchableOpacity, StyleSheet,
 } from "react-native";
+import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { theme } from "./themes";
 
 const HOTBAR_CONFIG = {
     patient: [
@@ -10,21 +12,25 @@ const HOTBAR_CONFIG = {
             key: "profile",
             icon: "person-circle-outline",
             screen: "Profile",
+            route: "/settings",
         },
         {
             key: "calendar",
             icon: "calendar-outline",
             screen: "Calendar",
+            route: "/calendar",
         },
         {
             key: "qr",
             icon: "qr-code-outline",
             screen: "QR",
+            route: "/qrscanner",
         },
         {
             key: "contact",
             icon: "call-outline",
             screen: "Contact",
+            route: "/emergency",
         },
     ],
 
@@ -33,11 +39,13 @@ const HOTBAR_CONFIG = {
       key: "calendar",
       icon: "calendar-outline",
       screen: "Calendar",
+      route: "/calendar",
     },
     {
       key: "scan",
       icon: "scan-outline",
       screen: "Scanner",
+      route: "/qrscanner",
     },
   ],
 
@@ -46,6 +54,7 @@ const HOTBAR_CONFIG = {
       key: "scan",
       icon: "scan-outline",
       screen: "Scanner",
+      route: "/qrscanner",
     },
   ],
 };
@@ -53,11 +62,13 @@ const HOTBAR_CONFIG = {
 export default function BottomHotbar({
     role, navigation, activeItem,
 }) {
-    const items = HOTBAR_CONFIG[role] || [];
-
-    const handleHotBarPress = (item) => {
-        navigation.navigate(item.screen);
-    }
+    // Accept both Firestore role codes and their longer display names.
+    const roleName = {
+        p: "patient",
+        d: "doctor",
+        r: "receptionist",
+    }[role] || role;
+    const items = HOTBAR_CONFIG[roleName] || [];
 
     return (
         <View style={styles.container}>
@@ -72,10 +83,14 @@ export default function BottomHotbar({
                                 styles.button,
                                 isActive && styles.activeButton,
                             ]}
-                            onPress={() => onItemPress?.(item.key)}
+                            onPress={() => router.push(item.route)}
                             activeOpacity={0.7}
                         >
-                            <Ionicons name={item.icon} size={27} color="#111" />
+                            <Ionicons
+                                name={item.icon}
+                                size={27}
+                                color={isActive ? theme.colors.primary : theme.colors.dark}
+                            />
                         </TouchableOpacity>
                     );
                 })}
@@ -88,9 +103,9 @@ const styles = StyleSheet.create({
     container: {
         height: 62,
         borderTopWidth: 1,
-        borderTopColor: '#999',
+        borderTopColor: theme.colors.light,
         justifyContent: "center",
-        backgroundColor: '#fff',
+        backgroundColor: theme.colors.white,
     },
 
     hotbar: {
@@ -109,6 +124,6 @@ const styles = StyleSheet.create({
   },
 
   activeButton: {
-    backgroundColor: '#eeeeee',
+    backgroundColor: theme.colors.background,
   },
 });

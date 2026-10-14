@@ -1,7 +1,7 @@
 export const dummyUser = {
     id: "user001",
     name: "John Doe",
-    role: "patient",
+    role: "p", // 'p' for patient, 'd' for doctor, 'r' for receptionist
 };
 
 export const dummyCalendarData = {
