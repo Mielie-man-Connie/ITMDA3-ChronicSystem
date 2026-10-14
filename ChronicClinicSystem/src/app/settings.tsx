@@ -24,7 +24,7 @@ import {
   Spacing,
   BottomTabInset,
   MaxContentWidth,
-} from '../constants/theme';
+} from '@/constants/theme';
 
 type Role = 'doctor' | 'patient' | 'receptionist';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
