@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { registerUser } from '../../services/firebase';
-import { theme } from '../../components/themes';
+import { useAppTheme } from '@/components/theme-provider';
 
 export default function SignupScreen() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
@@ -122,7 +124,7 @@ export default function SignupScreen() {
             activeOpacity={0.8}
           >
             {loading ? (
-              <ActivityIndicator color={theme.colors.white} />
+              <ActivityIndicator color={theme.colors.onPrimary} />
             ) : (
               <Text style={styles.primaryButtonText}>Create account</Text>
             )}
@@ -140,7 +142,8 @@ export default function SignupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -177,9 +180,9 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: theme.spacing.medium,
     borderWidth: 1,
-    borderColor: theme.colors.light,
+    borderColor: theme.colors.secondaryBorder,
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.secondarySurface,
     fontSize: theme.fontSizes.body,
     color: theme.colors.darkest,
   },
@@ -189,7 +192,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: theme.spacing.medium,
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.primarybtn,
+    backgroundColor: theme.colors.secondarylight,
   },
   disabledButton: {
     backgroundColor: theme.colors.light,
@@ -197,7 +200,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: theme.fontSizes.body,
     fontWeight: '700',
-    color: theme.colors.white,
+    color: theme.colors.onSecondary,
   },
   loginRow: {
     flexDirection: 'row',
@@ -209,4 +212,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.primary,
   },
-});
+  });
+}

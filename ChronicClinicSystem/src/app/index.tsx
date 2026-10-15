@@ -11,9 +11,10 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebaseConfig';
-import { theme } from '../components/themes';
+import { useAppTheme } from '@/components/theme-provider';
 
 export default function Index() {
+  const { theme } = useAppTheme();
   // null = still checking, true = logged in, false = not logged in
   const [authState, setAuthState] = useState<boolean | null>(null);
 

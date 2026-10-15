@@ -14,7 +14,7 @@ import {
   searchUsersByName,
   updateUserProfile,
 } from '../../services/firebase';
-import { theme } from '../../components/themes';
+import { useAppTheme } from '@/components/theme-provider';
 
 type UserRecord = {
   id: string;
@@ -62,6 +62,7 @@ function appointmentDateKey(appointment: Appointment) {
 }
 
 function AppointmentCalendar({ title, appointments }: AppointmentCalendarProps) {
+  const styles = useScreenStyles();
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -189,6 +190,7 @@ function Field({
   multiline,
   keyboardType = 'default',
 }: FieldProps) {
+  const styles = useScreenStyles();
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -207,6 +209,8 @@ function Field({
 }
 
 export default function FBTestScreen() {
+  const { theme } = useAppTheme();
+  const styles = useScreenStyles();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [signedInUser, setSignedInUser] = useState<UserRecord | null>(null);
@@ -526,7 +530,9 @@ export default function FBTestScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function useScreenStyles() {
+  const { theme } = useAppTheme();
+  return useMemo(() => StyleSheet.create({
   page: {
     padding: theme.spacing.medium,
     paddingTop: 40,
@@ -548,9 +554,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.medium,
     padding: theme.spacing.medium,
     borderWidth: 1,
-    borderColor: theme.colors.light,
+    borderColor: theme.colors.secondaryBorder,
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.secondarySurface,
   },
   cardTitle: {
     marginBottom: theme.spacing.small,
@@ -572,7 +578,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: theme.colors.light,
+    borderColor: theme.colors.secondaryBorder,
     borderRadius: 6,
     color: theme.colors.textDark,
     backgroundColor: theme.colors.white,
@@ -600,12 +606,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 10,
     borderWidth: 1,
-    borderColor: theme.colors.light,
+    borderColor: theme.colors.secondaryBorder,
     borderRadius: 6,
     backgroundColor: theme.colors.background,
   },
   selectedUser: {
-    borderColor: theme.colors.primary,
+    borderColor: theme.colors.secondary,
     borderWidth: 2,
   },
   userName: {
@@ -639,7 +645,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.medium,
     paddingTop: theme.spacing.small,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.light,
+    borderTopColor: theme.colors.secondaryBorder,
   },
   sectionHeading: {
     flexDirection: 'row',
@@ -701,7 +707,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   selectedDay: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.secondary,
   },
   dayNumber: {
     color: theme.colors.textDark,
@@ -709,11 +715,11 @@ const styles = StyleSheet.create({
   },
   appointmentCount: {
     color: theme.colors.success,
-    fontSize: 10,
+    fontSize: theme.fontSizes.small - 2,
     fontWeight: '700',
   },
   selectedDayText: {
-    color: theme.colors.white,
+    color: theme.colors.onPrimary,
   },
   listTitle: {
     marginTop: theme.spacing.medium,
@@ -731,4 +737,5 @@ const styles = StyleSheet.create({
     color: theme.colors.dark,
     fontWeight: '600',
   },
-});
+  }), [theme]);
+}

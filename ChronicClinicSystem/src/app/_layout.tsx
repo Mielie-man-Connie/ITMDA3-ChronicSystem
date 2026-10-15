@@ -3,16 +3,24 @@
 import { useEffect } from 'react';
 import { Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebaseConfig';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { theme } from '../components/themes';
+import { ThemeProvider, useAppTheme } from '@/components/theme-provider';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  return (
+    <ThemeProvider>
+      <RootNavigator />
+    </ThemeProvider>
+  );
+}
+
+function RootNavigator() {
+  const { scheme, theme } = useAppTheme();
 
   useEffect(() => {
     // Global auth listener — stays mounted for the entire app session.
@@ -34,14 +42,12 @@ export default function RootLayout() {
 
   return (
     <>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           headerShown: false,
-          // Use your theme colours directly instead of react-navigation theme objects
           contentStyle: {
-            backgroundColor: colorScheme === 'dark'
-              ? theme.colors.darkest
-              : theme.colors.background,
+            backgroundColor: theme.colors.background,
           },
         }}
       />

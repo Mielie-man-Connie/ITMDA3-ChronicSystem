@@ -23,6 +23,7 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut
 } from 'firebase/auth';
 import {
@@ -36,7 +37,8 @@ import {
   where,
   getDocs,
   orderBy,
-  onSnapshot
+  onSnapshot,
+  writeBatch
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 
@@ -157,8 +159,7 @@ export async function logoutUser() {
  * For the currently signed-in user, use getCurrentUserProfile() instead.
  *
  * @param {string} uid - The Firebase Auth user ID
- * @returns {object} Profile object with id, name, email, phoneNumber, role,
- *                   accountVerified, createdAt, updatedAt
+ * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean}>}
  * @throws If no document exists for that UID
  *
  * Usage example:
@@ -181,7 +182,7 @@ export async function getUserById(uid) {
  * Use this in screens that need the logged-in user's data without having
  * to pass the uid around. HomeScreen and ProfileScreen both use this.
  *
- * @returns {object} Same shape as getUserById — includes id, name, role, etc.
+ * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean}>}
  * @throws If no user is signed in
  *
  * Usage example:
@@ -222,6 +223,23 @@ export async function updateUserProfile(uid, updatedFields) {
   await updateDoc(docRef, {
     ...Object.fromEntries(updates),
     updatedAt: new Date().toISOString()
+  });
+}
+
+/** Sends a Firebase password-reset email to the signed-in user. */
+export async function sendCurrentUserPasswordReset() {
+  const user = auth.currentUser;
+  if (!user?.email) throw new Error('No signed-in user email is available.');
+  await sendPasswordResetEmail(auth, user.email);
+}
+
+/** Records an account-deletion request for the signed-in user. */
+export async function requestAccountDeletion() {
+  const user = auth.currentUser;
+  if (!user) throw new Error('No user is signed in.');
+  await updateDoc(doc(db, 'users', user.uid), {
+    accountDeletionRequestedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   });
 }
 
@@ -284,7 +302,17 @@ export async function activatePatientAccount(uid) {
  *   // tokenCode is now cached locally — QR screen can show it without internet
  */
 export async function bookAppointment(patientId, appointmentDetails) {
-  const { appointmentDate, appointmentType, clinicId, timeSlot } = appointmentDetails;
+  const {
+    appointmentDate,
+    appointmentType,
+    clinicId,
+    timeSlot,
+    doctorId,
+    patientName,
+    clinicName,
+    recurringSeriesId,
+    status = 'booked',
+  } = appointmentDetails;
   if (!patientId || !appointmentDate || !appointmentType || !clinicId || !timeSlot) {
     throw new Error('Patient, clinic, date, time slot, and appointment type are required.');
   }
@@ -296,12 +324,16 @@ export async function bookAppointment(patientId, appointmentDetails) {
   // Write the appointment to Firestore
   const appointmentRef = await addDoc(collection(db, 'appointments'), {
     patientId,
-    status: 'booked',
+    status,
     createdAt: new Date().toISOString(),
     appointmentDate: parsedDate.toISOString(),
     appointmentType,
     clinicId,
     timeSlot,
+    ...(doctorId ? { doctorId } : {}),
+    ...(patientName ? { patientName } : {}),
+    ...(clinicName ? { clinicName } : {}),
+    ...(recurringSeriesId ? { recurringSeriesId } : {}),
   });
 
   // Generate a unique token code — this string is what the QR encodes
@@ -396,6 +428,76 @@ export async function cancelAppointment(appointmentId) {
   await updateDoc(docRef, {
     status: 'cancelled'
   });
+}
+
+/** Updates supported operational fields on an appointment document. */
+export async function updateAppointment(appointmentId, updatedFields) {
+  const allowedFields = ['status', 'priorityLevel', 'checkInTime', 'doctorId'];
+  const updates = Object.entries(updatedFields);
+  if (
+    typeof appointmentId !== 'string' ||
+    !appointmentId.trim() ||
+    updates.length === 0 ||
+    updates.some(([field, value]) => !allowedFields.includes(field) || value === undefined)
+  ) {
+    throw new Error('Provide an appointment ID and valid fields to update.');
+  }
+  await updateDoc(doc(db, 'appointments', appointmentId), {
+    ...Object.fromEntries(updates),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/** Updates every appointment in a recurring series atomically. */
+export async function updateAppointmentSeries(seriesId, updatedFields) {
+  const updates = Object.entries(updatedFields);
+  const allowedFields = ['status', 'doctorId'];
+  if (
+    typeof seriesId !== 'string' ||
+    !seriesId.trim() ||
+    updates.length === 0 ||
+    updates.some(([field, value]) => !allowedFields.includes(field) || value === undefined)
+  ) {
+    throw new Error('Provide a recurring series ID and valid fields to update.');
+  }
+  const snapshot = await getDocs(
+    query(collection(db, 'appointments'), where('recurringSeriesId', '==', seriesId))
+  );
+  if (snapshot.empty) throw new Error('No appointments were found for this recurring series.');
+  const batch = writeBatch(db);
+  snapshot.docs.forEach((appointmentDoc) => {
+    batch.update(appointmentDoc.ref, {
+      ...Object.fromEntries(updates),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+  await batch.commit();
+  return snapshot.docs.map((appointmentDoc) => appointmentDoc.id);
+}
+
+/** Subscribes to live appointment changes. Pass a patient ID to scope the feed. */
+export function subscribeToAppointments(onUpdate, onError, patientId) {
+  const appointmentsQuery = patientId
+    ? query(collection(db, 'appointments'), where('patientId', '==', patientId))
+    : collection(db, 'appointments');
+  return onSnapshot(
+    appointmentsQuery,
+    (snapshot) => {
+      const appointments = snapshot.docs
+        .map((document) => ({ id: document.id, ...document.data() }))
+        .sort((a, b) => {
+          const aDate = a.appointmentDate?.toDate
+            ? a.appointmentDate.toDate().getTime()
+            : new Date(a.appointmentDate || 0).getTime();
+          const bDate = b.appointmentDate?.toDate
+            ? b.appointmentDate.toDate().getTime()
+            : new Date(b.appointmentDate || 0).getTime();
+          return aDate - bDate;
+        });
+      onUpdate(appointments);
+    },
+    onError
+  );
 }
 
 /** getAllAppointments
@@ -578,7 +680,7 @@ export async function addPatientToQueue({ appointmentId, patientId, patientName 
  * Call this from PatientManagementScreen and the doctor's HomeScreen.
  * Returns an empty array if no patients are registered.
  *
- * @returns {Array} List of patient profile objects
+ * @returns {Promise<Array<{id: string, name?: string, phoneNumber?: string, role?: string, clinicId?: string}>>}
  *
  * Usage example:
  *   const patients = await getClinicPatients();
@@ -597,6 +699,19 @@ export async function getClinicPatients() {
   return patients;
 }
 
+/** @returns {Promise<Array<{id: string, name?: string, clinicId?: string, role?: string}>>} */
+export async function getClinicDoctors() {
+  const q = query(collection(db, 'users'), where('role', 'in', ['d', 'doctor']));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doctorDoc) => ({ id: doctorDoc.id, ...doctorDoc.data() }));
+}
+
+/** @returns {Promise<Array<{id: string, name?: string, dailySlotCapacity?: number}>>} */
+export async function getClinics() {
+  const snapshot = await getDocs(collection(db, 'clinics'));
+  return snapshot.docs.map((clinicDoc) => ({ id: clinicDoc.id, ...clinicDoc.data() }));
+}
+
 /** searchUsersByName
  * Finds users whose names contain the search text (case-insensitive).
  *
@@ -604,7 +719,7 @@ export async function getClinicPatients() {
  * client-side since Firestore does not support native case-insensitive search.
  *
  * @param {string} searchText - The text to search for in user names
- * @returns {Array} Matching user profiles sorted alphabetically by name
+ * @returns {Promise<Array<{id: string, name?: string, phoneNumber?: string, role?: string}>>}
  *
  * Usage example:
  *   const matches = await searchUsersByName('jan');
@@ -615,7 +730,22 @@ export async function searchUsersByName(searchText) {
   const snapshot = await getDocs(collection(db, 'users'));
   return snapshot.docs
     .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
-    .filter((user) => (user.name || '').toLowerCase().includes(search))
+    .filter((user) => user.role === 'p' && (user.name || '').toLowerCase().includes(search))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+/** @returns {Promise<Array<{id: string, name?: string, phoneNumber?: string, role?: string}>>} */
+export async function searchUsersByPhoneNumber(searchText) {
+  const search = typeof searchText === 'string'
+    ? searchText.replace(/\D/g, '')
+    : '';
+  if (!search) return [];
+  const snapshot = await getDocs(
+    query(collection(db, 'users'), where('role', '==', 'p'))
+  );
+  return snapshot.docs
+    .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
+    .filter((user) => String(user.phoneNumber || '').replace(/\D/g, '').includes(search))
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 

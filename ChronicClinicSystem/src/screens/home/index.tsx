@@ -13,13 +13,12 @@
 //   'r' = receptionist
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
@@ -29,64 +28,97 @@ import {
   getClinicPatients,
   getCurrentUserProfile,
   getPatientAppointments,
+  subscribeToAppointments,
 } from '../../services/firebase';
+import { useFocusEffect } from 'expo-router';
 
 // Update this import path to wherever your BottomHotbar component lives
 import BottomHotbar from '../../components/BottomHotbar';
-import { theme } from '../../components/themes';
+import { useAppTheme } from '@/components/theme-provider';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper — converts Firestore date values (Timestamp, ISO string, or Date)
 // into a regular JavaScript Date object for display.
 // Returns null if the value is missing or invalid.
-function getAppointmentDate(value) {
+function getAppointmentDate(value: Appointment['appointmentDate']): Date | null {
   if (!value) return null;
-  // Firestore Timestamps have a .toDate() method
-  const date = typeof value === 'object' && value.toDate
-    ? value.toDate()
-    : new Date(value);
+  const date = value instanceof Date
+    ? value
+    : typeof value === 'object'
+      ? value.toDate()
+      : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
+
+type Appointment = {
+  id: string;
+  appointmentDate?: string | Date | { toDate: () => Date };
+  appointmentType?: string;
+  timeSlot?: string;
+  patientId?: string;
+  doctorId?: string;
+  status?: string;
+};
+
+type Patient = {
+  id: string;
+  name?: string;
+};
+
+type HomeStyles = ReturnType<typeof createStyles>;
 
 
 // Main HomeScreen component
 // Loads user profile on mount, then fetches the right data for their role.
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [role, setRole] = useState('');
-  const [appointments, setAppointments] = useState([]);
-  const [patients, setPatients] = useState([]);
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    // isActive prevents state updates if the component unmounts before the
-    // async calls finish — avoids the "can't update unmounted component" warning
+  useFocusEffect(
+    useCallback(() => {
     let isActive = true;
+    let unsubscribe: (() => void) | undefined;
+    setLoading(true);
+    setError('');
 
     async function loadHomeData() {
       try {
-        // Step 1: get the signed-in user's Firestore profile (name, role, etc.)
         const user = await getCurrentUserProfile();
         if (!isActive) return;
         setRole(user.role || '');
+        setCurrentUserId(user.id);
 
-        // Step 2: fetch data that matches the user's role
         if (user.role === 'p') {
-          // Patient — only fetch their own appointments
           const userAppointments = await getPatientAppointments(user.id);
-          if (isActive) setAppointments(userAppointments);
-
+          if (!isActive) return;
+          setAppointments(userAppointments);
+          unsubscribe = subscribeToAppointments(
+            (updates: Appointment[]) => isActive && setAppointments(updates),
+            (listenerError: Error) => {
+              if (isActive) setError(listenerError.message);
+            },
+            user.id,
+          );
         } else if (user.role === 'd' || user.role === 'r') {
-          // Doctor or Receptionist — fetch all appointments and all patients
-          // Promise.all runs both fetches at the same time so it is faster
           const [allAppointments, clinicPatients] = await Promise.all([
             getAllAppointments(),
             getClinicPatients(),
           ]);
-          if (isActive) {
-            setAppointments(allAppointments);
-            setPatients(clinicPatients);
-          }
+          if (!isActive) return;
+          setAppointments(allAppointments);
+          setPatients(clinicPatients);
+          unsubscribe = subscribeToAppointments(
+            (updates: Appointment[]) => isActive && setAppointments(updates),
+            (listenerError: Error) => {
+              if (isActive) setError(listenerError.message);
+            },
+          );
         }
       } catch (loadError) {
         if (isActive) {
@@ -99,11 +131,12 @@ export default function HomeScreen({ navigation }) {
 
     void loadHomeData();
 
-    // Cleanup: prevent stale state updates if the screen unmounts
     return () => {
       isActive = false;
+      unsubscribe?.();
     };
-  }, []);
+  }, []),
+  );
 
   // Filter appointments to today only — used by the receptionist view
   const today = new Date();
@@ -127,7 +160,7 @@ export default function HomeScreen({ navigation }) {
         {/* Loading state */}
         {loading && (
           <View style={styles.messageContainer}>
-            <ActivityIndicator color="#415A77" />
+            <ActivityIndicator color={theme.colors.primarylight} />
             <Text style={styles.messageText}>Loading...</Text>
           </View>
         )}
@@ -141,7 +174,7 @@ export default function HomeScreen({ navigation }) {
         {!loading && !error && role === 'p' && (
           <PatientHome
             appointments={appointments}
-            navigation={navigation}
+            styles={styles}
           />
         )}
 
@@ -149,7 +182,8 @@ export default function HomeScreen({ navigation }) {
           <DoctorHome
             appointments={appointments}
             patients={patients}
-            navigation={navigation}
+            currentUserId={currentUserId}
+            styles={styles}
           />
         )}
 
@@ -157,7 +191,7 @@ export default function HomeScreen({ navigation }) {
           <ReceptionistHome
             appointments={todaysAppointments}
             patients={patients}
-            navigation={navigation}
+            styles={styles}
           />
         )}
 
@@ -183,7 +217,7 @@ export default function HomeScreen({ navigation }) {
 // Shows the patient's upcoming appointments as a calendar summary.
 // appointments: array fetched from getPatientAppointments() in firebase.js
 // ─────────────────────────────────────────────────────────────────────────────
-function PatientHome({ appointments, navigation }) {
+function PatientHome({ appointments, styles }: { appointments: Appointment[]; styles: HomeStyles }) {
   return (
     <View>
       <Text style={styles.sectionTitle}>Calendar Summary</Text>
@@ -224,20 +258,41 @@ function PatientHome({ appointments, navigation }) {
 // appointments: fetched from getAllAppointments() in firebase.js
 // patients:     fetched from getClinicPatients() in firebase.js
 // ─────────────────────────────────────────────────────────────────────────────
-function DoctorHome({ appointments, patients, navigation }) {
+function DoctorHome({ appointments, patients, currentUserId, styles }: { appointments: Appointment[]; patients: Patient[]; currentUserId: string; styles: HomeStyles }) {
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const tenDayLimit = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10);
+  const tenDayLimitKey = `${tenDayLimit.getFullYear()}-${String(tenDayLimit.getMonth() + 1).padStart(2, '0')}-${String(tenDayLimit.getDate()).padStart(2, '0')}`;
+  const upcomingAppointments = appointments.filter((appointment) => {
+    const date = getAppointmentDate(appointment.appointmentDate);
+    if (!date || appointment.doctorId !== currentUserId || appointment.status === 'cancelled') return false;
+    const appointmentKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return appointmentKey >= todayKey && appointmentKey < tenDayLimitKey;
+  }).sort((a, b) => {
+    const dateA = getAppointmentDate(a.appointmentDate)?.getTime() ?? 0;
+    const dateB = getAppointmentDate(b.appointmentDate)?.getTime() ?? 0;
+    return dateA - dateB;
+  });
+  const bookedPatientIds = new Set(
+    upcomingAppointments
+      .filter((appointment) => appointment.patientId)
+      .map((appointment) => appointment.patientId as string),
+  );
+  const doctorPatients = patients.filter((patient) => bookedPatientIds.has(patient.id));
+
   return (
     <View>
       <Text style={styles.sectionTitle}>Calendar Summary</Text>
 
       <View style={styles.calendarCard}>
-        {appointments.length > 0 ? (
-          appointments.map((appointment) => {
+        {upcomingAppointments.length > 0 ? (
+          upcomingAppointments.map((appointment) => {
             const date = getAppointmentDate(appointment.appointmentDate);
             const dateLabel = date ? date.toLocaleDateString('en-ZA') : 'Date not set';
             const timeLabel = appointment.timeSlot || '';
 
             // Try to show the patient's name instead of just the appointment type
-            const patient = patients.find((p) => p.id === appointment.patientId);
+            const patient = doctorPatients.find((p) => p.id === appointment.patientId);
 
             return (
               <View key={appointment.id} style={styles.calendarItem}>
@@ -261,8 +316,8 @@ function DoctorHome({ appointments, patients, navigation }) {
       <Text style={styles.sectionTitle}>Patient List</Text>
 
       <View style={styles.patientList}>
-        {patients.length > 0 ? (
-          patients.map((patient) => (
+        {doctorPatients.length > 0 ? (
+          doctorPatients.map((patient) => (
             <View key={patient.id} style={styles.patientRow}>
               <View style={styles.patientNameContainer}>
                 <View style={styles.patientLine} />
@@ -271,23 +326,6 @@ function DoctorHome({ appointments, patients, navigation }) {
                 </Text>
               </View>
 
-              <View style={styles.patientActions}>
-                {/* Edit navigates to the patient management screen */}
-                {/* Replace console.log with navigation.navigate() once those screens exist */}
-                <TouchableOpacity
-                  style={styles.smallButton}
-                  onPress={() => console.log('Edit patient:', patient.id)}
-                >
-                  <Text style={styles.smallButtonText}>Edit</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.smallButton}
-                  onPress={() => console.log('Delete patient:', patient.id)}
-                >
-                  <Text style={styles.smallButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           ))
         ) : (
@@ -295,12 +333,6 @@ function DoctorHome({ appointments, patients, navigation }) {
         )}
       </View>
 
-      <TouchableOpacity
-        style={styles.addPatientButton}
-        onPress={() => console.log('Add patient')}
-      >
-        <Text style={styles.addPatientText}>Add patient</Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -311,7 +343,7 @@ function DoctorHome({ appointments, patients, navigation }) {
 // appointments: today's appointments filtered from getAllAppointments()
 // patients:     fetched from getClinicPatients() — used to look up patient names
 // ─────────────────────────────────────────────────────────────────────────────
-function ReceptionistHome({ appointments, patients, navigation }) {
+function ReceptionistHome({ appointments, patients, styles }: { appointments: Appointment[]; patients: Patient[]; styles: HomeStyles }) {
   return (
     <View>
       <Text style={styles.sectionTitle}>Today's appointments</Text>
@@ -351,7 +383,8 @@ function ReceptionistHome({ appointments, patients, navigation }) {
 // Styles — kept exactly as the teammate wrote them, with theme colours
 // substituted for the hardcoded hex values where they match.
 // ─────────────────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.colors.background
@@ -371,23 +404,23 @@ const styles = StyleSheet.create({
   messageText: {
     marginTop: 8,
     color: theme.colors.secondary,
-    fontSize: 16,
+    fontSize: theme.fontSizes.body,
     textAlign: 'center',
   },
   errorText: {
     color: theme.colors.error,
-    fontSize: 16,
+    fontSize: theme.fontSizes.body,
     textAlign: 'center',
     padding: 24,
   },
   emptyText: {
     color: theme.colors.secondary,
-    fontSize: 14,
+    fontSize: theme.fontSizes.small + 2,
     textAlign: 'center',
     paddingVertical: 8,
   },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: theme.fontSizes.body - 1,
     fontWeight: '500',
     textAlign: 'center',
     marginBottom: 18,
@@ -396,11 +429,11 @@ const styles = StyleSheet.create({
   },
   calendarCard: {
     borderWidth: 1,
-    borderColor: theme.colors.dark,
+    borderColor: theme.colors.secondaryBorder,
     borderRadius: 14,
     padding: 15,
     marginBottom: 30,
-    backgroundColor: theme.colors.white
+    backgroundColor: theme.colors.secondarySurface,
   },
   calendarItem: {
     flexDirection: 'row',
@@ -410,16 +443,16 @@ const styles = StyleSheet.create({
   calendarLine: {
     height: 7,
     width: '30%',
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.secondary,
     marginRight: 15,
   },
   appointmentTitle: {
-    fontSize: 13,
+    fontSize: theme.fontSizes.small + 1,
     fontWeight: '500',
     color: theme.colors.darkest
   },
   appointmentDetails: {
-    fontSize: 11,
+    fontSize: theme.fontSizes.small - 1,
     color: theme.colors.secondary,
     marginTop: 2,
   },
@@ -440,40 +473,12 @@ const styles = StyleSheet.create({
   patientLine: {
     height: 7,
     width: 55,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.secondarylight,
     marginRight: 12,
   },
   patientName: {
-    fontSize: 12,
+    fontSize: theme.fontSizes.small,
     color: theme.colors.darkest
   },
-  patientActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  smallButton: {
-    borderWidth: 1,
-    borderColor: theme.colors.secondary,
-    borderRadius: 3,
-    paddingVertical: 4,
-    paddingHorizontal: 9,
-    backgroundColor: theme.colors.white,
-  },
-  smallButtonText: {
-    fontSize: 9,
-    color: theme.colors.darkest,
-  },
-  addPatientButton: {
-    alignSelf: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.secondary,
-    borderRadius: 3,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginTop: 5,
-  },
-  addPatientText: {
-    fontSize: 10,
-    color: theme.colors.darkest
-  },
-});
+  });
+}

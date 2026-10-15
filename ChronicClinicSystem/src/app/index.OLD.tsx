@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Link } from 'expo-router';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
-// Shared colours, spacing, and text sizes used throughout the app.
-import { theme } from '../components/themes';
+import { useAppTheme } from '@/components/theme-provider';
 
 // Add an entry here for each screen you want to link from this test launcher.
 
@@ -26,6 +25,8 @@ const appRoutes = [
 ] as const;
 
 export default function AppEntry() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   // Track the Firebase check so the launcher can show loading, success, or error.
   const [dbStatus, setDbStatus] = useState<'testing' | 'connected' | 'error'>('testing');
   const [dbError, setDbError] = useState<string>('');
@@ -88,7 +89,8 @@ export default function AppEntry() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
+  return StyleSheet.create({
   container: {
     flexGrow: 1,
     padding: theme.spacing.medium,
@@ -155,4 +157,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: theme.fontSizes.body,
   },
-});
+  });
+}

@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "./themes";
+import { useAppTheme } from "./theme-provider";
 
 const HOTBAR_CONFIG = {
     patient: [
@@ -36,6 +36,12 @@ const HOTBAR_CONFIG = {
 
     doctor: [
     {
+      key: "profile",
+      icon: "person-circle-outline",
+      screen: "Profile",
+      route: "/settings",
+    },
+    {
       key: "calendar",
       icon: "calendar-outline",
       screen: "Calendar",
@@ -51,6 +57,12 @@ const HOTBAR_CONFIG = {
 
   receptionist: [
     {
+      key: "profile",
+      icon: "person-circle-outline",
+      screen: "Profile",
+      route: "/settings",
+    },
+    {
       key: "scan",
       icon: "scan-outline",
       screen: "Scanner",
@@ -62,6 +74,7 @@ const HOTBAR_CONFIG = {
 export default function BottomHotbar({
     role, navigation, activeItem,
 }) {
+    const { theme } = useAppTheme();
     // Accept both Firestore role codes and their longer display names.
     const roleName = {
         p: "patient",
@@ -71,7 +84,10 @@ export default function BottomHotbar({
     const items = HOTBAR_CONFIG[roleName] || [];
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, {
+            borderTopColor: theme.colors.secondaryBorder,
+            backgroundColor: theme.colors.secondarySurface,
+        }]}>
             <View style={styles.hotbar}>
                 {items.map((item) => {
                     const isActive = activeItem === item.key;
@@ -81,7 +97,7 @@ export default function BottomHotbar({
                             key={item.key}
                             style={[
                                 styles.button,
-                                isActive && styles.activeButton,
+                                isActive && { backgroundColor: theme.colors.backgroundSelected },
                             ]}
                             onPress={() => router.push(item.route)}
                             activeOpacity={0.7}
@@ -89,7 +105,7 @@ export default function BottomHotbar({
                             <Ionicons
                                 name={item.icon}
                                 size={27}
-                                color={isActive ? theme.colors.primary : theme.colors.dark}
+                                color={isActive ? theme.colors.secondary : theme.colors.darkest}
                             />
                         </TouchableOpacity>
                     );
@@ -103,9 +119,7 @@ const styles = StyleSheet.create({
     container: {
         height: 62,
         borderTopWidth: 1,
-        borderTopColor: theme.colors.light,
         justifyContent: "center",
-        backgroundColor: theme.colors.white,
     },
 
     hotbar: {
@@ -123,7 +137,4 @@ const styles = StyleSheet.create({
     borderRadius: 25,
   },
 
-  activeButton: {
-    backgroundColor: theme.colors.background,
-  },
 });

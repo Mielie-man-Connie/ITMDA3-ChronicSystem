@@ -1,6 +1,6 @@
 // screens/login/LoginScreen.tsx
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,9 +15,11 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { loginUser } from '../../services/firebase';
-import { theme } from '../../components/themes';
+import { useAppTheme } from '@/components/theme-provider';
 
 export default function LoginScreen() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -129,7 +131,7 @@ export default function LoginScreen() {
             activeOpacity={0.8}
           >
             {loading ? (
-              <ActivityIndicator color={theme.colors.white} />
+              <ActivityIndicator color={theme.colors.onPrimary} />
             ) : (
               <Text style={styles.primaryButtonText}>Sign in</Text>
             )}
@@ -156,7 +158,8 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,      // warm cream — screen background
@@ -194,9 +197,9 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: theme.spacing.medium,
     borderWidth: 1,
-    borderColor: theme.colors.light,                // light sage — input border
+    borderColor: theme.colors.secondaryBorder,      // sage — input border
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.white,            // white — input background
+    backgroundColor: theme.colors.secondarySurface,
     fontSize: theme.fontSizes.body,
     color: theme.colors.darkest,                    // darkest — typed text
   },
@@ -214,7 +217,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: theme.spacing.medium,
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.primarybtn,       // blue — primary action button
+    backgroundColor: theme.colors.primarylight,     // blue — primary action button
   },
   primaryButtonDisabled: {
     backgroundColor: theme.colors.light,            // light sage — disabled state
@@ -222,7 +225,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: theme.fontSizes.body,
     fontWeight: '700',
-    color: theme.colors.white,                      // white text on blue button
+    color: theme.colors.onPrimary,                  // white text on blue button
   },
   dividerRow: {
     flexDirection: 'row',
@@ -233,7 +236,7 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: theme.colors.light,            // light sage — divider line
+    backgroundColor: theme.colors.secondaryBorder,
   },
   dividerText: {
     fontSize: theme.fontSizes.small,
@@ -253,4 +256,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.primary,                    // medium blue-grey — link
   },
-});
+  });
+}
