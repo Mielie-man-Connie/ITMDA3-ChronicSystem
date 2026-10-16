@@ -73,6 +73,7 @@ type Appointment = {
   clinicName?: string;
   checkInTime?: string;
   recurringSeriesId?: string;
+  accountActive?: boolean;
 };
 
 type Patient = {
@@ -81,6 +82,8 @@ type Patient = {
   phoneNumber?: string;
   doctorId?: string;
   clinicId?: string;
+  accountVerified?: boolean;
+  accountStatus?: string;
 };
 
 type Clinic = {
@@ -182,7 +185,7 @@ function confirmAction(title: string, message: string, yesText: string, onYes: (
   }
 }
 
-function toCalendarAppointment(record: any, patientNames: Map<string, string>): Appointment | null {
+function toCalendarAppointment(record: any, patientsById: Map<string, Patient>): Appointment | null {
   const rawDate = record.appointmentDate?.toDate
     ? record.appointmentDate.toDate()
     : new Date(record.appointmentDate);
@@ -200,10 +203,12 @@ function toCalendarAppointment(record: any, patientNames: Map<string, string>): 
     ? 'medication-collection'
     : 'chronic-checkup';
 
+  const patient = patientsById.get(record.patientId);
   return {
     id: record.id,
     patientId: record.patientId,
-    patientName: record.patientName || patientNames.get(record.patientId) || 'Patient',
+    patientName: record.patientName || patient?.name || 'Patient',
+    accountActive: patient?.accountVerified === true || patient?.accountStatus === 'active',
     doctorId: record.doctorId || '',
     clinicId: record.clinicId || '',
     clinicName: record.clinicName || record.clinicId || '',
@@ -423,9 +428,14 @@ function AppointmentStatusModal({
           <Text style={{ fontSize: ui.size + 4, fontWeight: '800', color: ui.c.text }}>
             Change appointment status
           </Text>
-          <Text style={{ fontSize: ui.size - 1, color: ui.c.textSecondary, marginTop: Spacing.one }}>
-            {appointment.patientName} · {formatLong(appointment.date)} at {appointment.timeSlot}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one, marginTop: Spacing.one }}>
+            <Text style={{ fontSize: ui.size - 1, color: ui.c.textSecondary }}>
+              {appointment.patientName} · {formatLong(appointment.date)} at {appointment.timeSlot}
+            </Text>
+            {appointment.accountActive && (
+              <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
+            )}
+          </View>
           <View style={[styles.chipWrap, { marginTop: Spacing.three }]}>
             {statuses.map((status) => (
               <Chip
@@ -637,9 +647,14 @@ function ScheduleModal({
             { backgroundColor: patient?.id === result.id ? ui.c.backgroundSelected : ui.c.backgroundElement },
           ]}
         >
-          <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '600' }}>
-            {result.name || 'Unnamed patient'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
+            <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '600' }}>
+              {result.name || 'Unnamed patient'}
+            </Text>
+            {(result.accountVerified === true || result.accountStatus === 'active') && (
+              <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
+            )}
+          </View>
           <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 2 }}>
             {result.phoneNumber || 'No phone number on profile'}
           </Text>
@@ -664,9 +679,14 @@ function ScheduleModal({
                 onPress={() => setPatient(null)}
                 style={[styles.selectedPatient, { backgroundColor: ui.c.backgroundSelected }]}
               >
-                <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '700' }}>
-                  {patient.name || 'Unnamed patient'} · {patient.phoneNumber || 'No phone'}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
+                  <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '700' }}>
+                    {patient.name || 'Unnamed patient'} · {patient.phoneNumber || 'No phone'}
+                  </Text>
+                  {(patient.accountVerified === true || patient.accountStatus === 'active') && (
+                    <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
+                  )}
+                </View>
                 <Text style={{ color: ui.c.primarylight, fontSize: ui.size - 2 }}>Tap to change</Text>
               </Pressable>
             )}
@@ -836,7 +856,10 @@ export default function CalendarScreen() {
             clinicId ||
             (clinicList.length === 1 ? clinicList[0].id : '');
           const patientList = rawPatients as Patient[];
-          const patientNames = new Map(patientList.map((patient) => [patient.id, patient.name]));
+          const patientsById = new Map(patientList.map((patient) => [patient.id, patient]));
+          if (resolvedRole === 'patient') {
+            patientsById.set(profile.id, profile as Patient);
+          }
 
           if (!active) return;
           setRole(resolvedRole);
@@ -860,7 +883,7 @@ export default function CalendarScreen() {
                 );
               }
               const calendarAppointments = scopedRecords
-                .map((record) => toCalendarAppointment(record, patientNames))
+                .map((record) => toCalendarAppointment(record, patientsById))
                 .filter((appointment): appointment is Appointment => appointment !== null);
               setAppointments(calendarAppointments);
             },
@@ -1319,7 +1342,12 @@ export default function CalendarScreen() {
               {scheduledAppointments.map((a) => (
                   <Pressable key={a.id} onPress={() => goToDate(a.date)} style={styles.summaryRow} accessibilityRole="button">
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: ui.size - 1, fontWeight: '600', color: ui.c.text }}>{a.patientName}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
+                        <Text style={{ fontSize: ui.size - 1, fontWeight: '600', color: ui.c.text }}>{a.patientName}</Text>
+                        {a.accountActive && (
+                          <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
+                        )}
+                      </View>
                       <Text style={{ fontSize: ui.size - 4, color: ui.c.textSecondary }}>
                         {formatLong(a.date)} at {a.timeSlot} • {TYPE_LABEL[a.type]}
                       </Text>
@@ -1342,7 +1370,12 @@ export default function CalendarScreen() {
               {doctorPatients.map((p) => (
                 <View key={p.id} style={styles.summaryRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: ui.size - 1, fontWeight: '600', color: ui.c.text }}>{p.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
+                      <Text style={{ fontSize: ui.size - 1, fontWeight: '600', color: ui.c.text }}>{p.name}</Text>
+                      {(p.accountVerified === true || p.accountStatus === 'active') && (
+                        <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
+                      )}
+                    </View>
                     <Text style={{ fontSize: ui.size - 4, color: ui.c.textSecondary }}>{upcomingCount(p.id)} upcoming booking(s)</Text>
                   </View>
                 </View>

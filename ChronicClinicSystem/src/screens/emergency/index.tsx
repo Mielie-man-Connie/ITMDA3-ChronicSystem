@@ -24,7 +24,13 @@ type UserRecord = {
   email?: string;
   phoneNumber?: string;
   role?: string;
+  accountVerified?: boolean;
+  accountStatus?: string;
 };
+
+function isAccountActive(user: UserRecord): boolean {
+  return user.accountVerified === true || user.accountStatus === 'active';
+}
 
 type Appointment = {
   id: string;
@@ -355,9 +361,14 @@ export default function FBTestScreen() {
         <Text style={styles.cardTitle}>Account</Text>
         {signedInUser ? (
           <>
-            <Text style={styles.muted}>
-              Signed in as {signedInUser.name || signedInUser.email || signedInUser.id}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.muted}>
+                Signed in as {signedInUser.name || signedInUser.email || signedInUser.id}
+              </Text>
+              {isAccountActive(signedInUser) && (
+                <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
+              )}
+            </View>
             <Button title="Sign out" disabled={busy} onPress={() => void runAction(async () => {
               await logoutUser();
               setSignedInUser(null);
@@ -406,14 +417,24 @@ export default function FBTestScreen() {
               setNotificationPatientId(user.id);
             }}
           >
-            <Text style={styles.userName}>{user.name || 'Unnamed user'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.userName}>{user.name || 'Unnamed user'}</Text>
+              {isAccountActive(user) && (
+                <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
+              )}
+            </View>
             <Text style={styles.muted}>{user.email || user.id} · {user.phoneNumber || 'No phone'}</Text>
             <Text style={styles.muted}>UID: {user.id}</Text>
           </TouchableOpacity>
         ))}
         {selectedUser ? (
           <View style={styles.editPanel}>
-            <Text style={styles.listTitle}>User details: {selectedUser.name || selectedUser.id}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.listTitle}>User details: {selectedUser.name || selectedUser.id}</Text>
+              {isAccountActive(selectedUser) && (
+                <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
+              )}
+            </View>
             <Field label="Name" value={profileName} onChange={setProfileName} />
             <Field label="Phone number" value={profilePhone} onChange={setProfilePhone} keyboardType="phone-pad" />
             <Button title="Save user details" disabled={busy} onPress={() => void runAction(async () => {
@@ -480,11 +501,16 @@ export default function FBTestScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Make an appointment</Text>
-        <Text style={styles.muted}>
-          {selectedUser
-            ? `Patient: ${selectedUser.name || selectedUser.id} (${selectedUser.id})`
-            : 'Search for and select a patient first.'}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.muted}>
+            {selectedUser
+              ? `Patient: ${selectedUser.name || selectedUser.id} (${selectedUser.id})`
+              : 'Search for and select a patient first.'}
+          </Text>
+          {selectedUser && isAccountActive(selectedUser) && (
+            <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
+          )}
+        </View>
         <Field label="Clinic ID" value={appointmentClinicId} onChange={setAppointmentClinicId} />
         <Field label="Date (YYYY-MM-DD)" value={appointmentDate} onChange={setAppointmentDate} placeholder="2026-10-09" />
         <Field label="Time slot" value={appointmentTime} onChange={setAppointmentTime} placeholder="09:00-09:15" />
@@ -508,11 +534,16 @@ export default function FBTestScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Add patient to the queue</Text>
-        <Text style={styles.muted}>
-          {selectedUser
-            ? `Patient: ${selectedUser.name || selectedUser.id} (${selectedUser.id})`
-            : 'Search for and select a patient first.'}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.muted}>
+            {selectedUser
+              ? `Patient: ${selectedUser.name || selectedUser.id} (${selectedUser.id})`
+              : 'Search for and select a patient first.'}
+          </Text>
+          {selectedUser && isAccountActive(selectedUser) && (
+            <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
+          )}
+        </View>
         <Field label="Appointment ID" value={queueAppointmentId} onChange={setQueueAppointmentId} />
         <Button title="Add to queue" disabled={busy || !selectedUser} onPress={() => void runAction(async () => {
           if (!selectedUser) throw new Error('Select a user before adding them to the queue.');

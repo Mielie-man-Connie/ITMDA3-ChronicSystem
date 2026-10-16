@@ -21,6 +21,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 // Firebase service functions — never call Firebase directly from this file
 import {
@@ -63,7 +64,13 @@ type Appointment = {
 type Patient = {
   id: string;
   name?: string;
+  accountVerified?: boolean;
+  accountStatus?: string;
 };
+
+function isAccountActive(patient: Patient): boolean {
+  return patient.accountVerified === true || patient.accountStatus === 'active';
+}
 
 type HomeStyles = ReturnType<typeof createStyles>;
 
@@ -259,6 +266,7 @@ function PatientHome({ appointments, styles }: { appointments: Appointment[]; st
 // patients:     fetched from getClinicPatients() in firebase.js
 // ─────────────────────────────────────────────────────────────────────────────
 function DoctorHome({ appointments, patients, currentUserId, styles }: { appointments: Appointment[]; patients: Patient[]; currentUserId: string; styles: HomeStyles }) {
+  const { theme } = useAppTheme();
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const tenDayLimit = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10);
@@ -324,6 +332,9 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
                 <Text style={styles.patientName}>
                   {patient.name || 'Unnamed patient'}
                 </Text>
+                {isAccountActive(patient) && (
+                  <Ionicons name="warning" size={18} color={theme.colors.warning} accessibilityLabel="Account is activated" />
+                )}
               </View>
 
             </View>

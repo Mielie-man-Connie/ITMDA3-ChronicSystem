@@ -38,7 +38,8 @@ import {
   getDocs,
   orderBy,
   onSnapshot,
-  writeBatch
+  writeBatch,
+  runTransaction
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 
@@ -159,7 +160,7 @@ export async function logoutUser() {
  * For the currently signed-in user, use getCurrentUserProfile() instead.
  *
  * @param {string} uid - The Firebase Auth user ID
- * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean}>}
+ * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
  * @throws If no document exists for that UID
  *
  * Usage example:
@@ -176,13 +177,70 @@ export async function getUserById(uid) {
   throw new Error('User profile not found');
 }
 
+/** Loads ICD-10 definitions from the chronic_illnesses Firestore collection. */
+export async function getChronicIllnesses() {
+  const snapshot = await getDocs(collection(db, 'chronic_illnesses'));
+  return snapshot.docs
+    .map((illnessDocument) => {
+      const illness = illnessDocument.data();
+      const fields = Object.fromEntries(
+        Object.entries(illness).map(([key, value]) => [key.toLocaleLowerCase().replace(/[^a-z0-9]/g, ''), value]),
+      );
+      const code =
+        fields.icd10code ??
+        fields.icd10 ??
+        fields.icd10diagnosis ??
+        fields.conditioncode ??
+        fields.diagnosiscode ??
+        fields.code ??
+        fields.codevalue ??
+        illnessDocument.id;
+      const name =
+        fields.conditionname ??
+        fields.illnessname ??
+        fields.chronicillnessname ??
+        fields.icd10name ??
+        fields.icd10description ??
+        fields.name ??
+        fields.condition ??
+        fields.chronicillness ??
+        fields.illnessdescription ??
+        fields.description ??
+        fields.label;
+      const normalizedCode =
+        typeof code === 'string' || typeof code === 'number' ? String(code).trim().toUpperCase() : '';
+      if (
+        !normalizedCode ||
+        typeof name !== 'string' ||
+        !name.trim()
+      ) {
+        return null;
+      }
+      return { id: illnessDocument.id, code: normalizedCode, name: name.trim() };
+    })
+    .filter((illness) => illness !== null)
+    .sort((left, right) => left.code.localeCompare(right.code));
+}
+
+/** Sets patient account activation without storing medical details on the server. */
+export async function setPatientAccountActivation(uid, active) {
+  if (typeof uid !== 'string' || !uid.trim() || typeof active !== 'boolean') {
+    throw new Error('A patient ID and activation value are required.');
+  }
+  await updateDoc(doc(db, 'users', uid), {
+    accountVerified: active,
+    accountStatus: active ? 'active' : 'inactive',
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 /** getCurrentUserProfile
  * Loads the Firestore profile for whoever is currently signed in.
  *
  * Use this in screens that need the logged-in user's data without having
  * to pass the uid around. HomeScreen and ProfileScreen both use this.
  *
- * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean}>}
+ * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
  * @throws If no user is signed in
  *
  * Usage example:
@@ -364,7 +422,9 @@ export async function bookAppointment(patientId, appointmentDetails) {
   try {
     await cacheAppointment({
       appointmentId: appointmentRef.id,
+      patientId,
       tokenCode,
+      expiresAt: expiry.toISOString(),
       appointmentDate: parsedDate.toISOString(),
       timeSlot,
       clinicId,
@@ -405,6 +465,68 @@ export async function getPatientAppointments(patientId) {
     appointments.push({ id: document.id, ...document.data() });
   });
   return appointments;
+}
+
+/** Fetches this patient's upcoming booked appointments with their unused tokens. */
+export async function getPatientCheckInAppointments(patientId) {
+  if (typeof patientId !== 'string' || !patientId.trim()) {
+    throw new Error('A patient ID is required to load check-in codes.');
+  }
+
+  const [appointmentSnapshot, tokenSnapshot] = await Promise.all([
+    getDocs(query(collection(db, 'appointments'), where('patientId', '==', patientId))),
+    getDocs(query(collection(db, 'tokens'), where('patientId', '==', patientId))),
+  ]);
+
+  const now = Date.now();
+  const tokensByAppointment = new Map();
+  tokenSnapshot.forEach((tokenDocument) => {
+    const token = tokenDocument.data();
+    const expiration = token.expiresAt?.toDate
+      ? token.expiresAt.toDate()
+      : new Date(token.expiresAt);
+    if (
+      token.appointmentId &&
+      token.tokenCode &&
+      token.isUsed === false &&
+      !Number.isNaN(expiration.getTime()) &&
+      expiration.getTime() >= now
+    ) {
+      tokensByAppointment.set(token.appointmentId, token);
+    }
+  });
+
+  return appointmentSnapshot.docs
+    .map((appointmentDocument) => {
+      const appointment = appointmentDocument.data();
+      const token = tokensByAppointment.get(appointmentDocument.id);
+      const appointmentDate = appointment.appointmentDate?.toDate
+        ? appointment.appointmentDate.toDate().toISOString()
+        : appointment.appointmentDate;
+      return {
+        appointmentId: appointmentDocument.id,
+        patientId,
+        tokenCode: token?.tokenCode || '',
+        expiresAt: token?.expiresAt,
+        appointmentDate,
+        timeSlot: appointment.timeSlot || '',
+        clinicId: appointment.clinicId || '',
+        clinicName: appointment.clinicName || '',
+        appointmentType: appointment.appointmentType || '',
+        status: appointment.status || '',
+      };
+    })
+    .filter(
+      (appointment) =>
+        appointment.status === 'booked' &&
+        Boolean(appointment.tokenCode) &&
+        appointment.appointmentDate &&
+        new Date(appointment.appointmentDate).getTime() >= new Date().setHours(0, 0, 0, 0),
+    )
+    .sort(
+      (left, right) =>
+        new Date(left.appointmentDate).getTime() - new Date(right.appointmentDate).getTime(),
+    );
 }
 
 /** cancelAppointment
@@ -592,6 +714,100 @@ export async function validateCheckInToken(token) {
     return { isValid: data.isUsed === false, data, id: tokenDoc.id };
   }
   return { isValid: false };
+}
+
+/**
+ * Atomically validates a check-in token, marks it used, and adds its patient
+ * to the clinic queue so the same code cannot be redeemed more than once.
+ */
+export async function redeemCheckInToken(token, expectedPatientId, expectedAppointmentId) {
+  if (typeof token !== 'string' || !token.trim()) {
+    throw new Error('A check-in token is required.');
+  }
+  if (typeof expectedPatientId !== 'string' || !expectedPatientId.trim()) {
+    throw new Error('The QR code does not include a patient ID.');
+  }
+  if (typeof expectedAppointmentId !== 'string' || !expectedAppointmentId.trim()) {
+    throw new Error('The QR code does not include an appointment ID.');
+  }
+
+  const tokenQuery = query(collection(db, 'tokens'), where('tokenCode', '==', token.trim()));
+  const matchingTokens = await getDocs(tokenQuery);
+  if (matchingTokens.empty) {
+    return { ok: false, message: 'This appointment code is not valid.' };
+  }
+  const tokenReference = matchingTokens.docs[0].ref;
+
+  return runTransaction(db, async (transaction) => {
+    const tokenDocument = await transaction.get(tokenReference);
+    if (!tokenDocument.exists()) {
+      return { ok: false, message: 'This appointment code is not valid.' };
+    }
+    const tokenData = tokenDocument.data();
+    if (tokenData.isUsed !== false) {
+      return { ok: false, message: 'This appointment code has already been used.' };
+    }
+    if (tokenData.patientId !== expectedPatientId.trim()) {
+      return { ok: false, message: 'This code does not match the patient ID in its QR.' };
+    }
+    if (tokenData.appointmentId !== expectedAppointmentId.trim()) {
+      return { ok: false, message: 'This code does not match the appointment in its QR.' };
+    }
+    if (!tokenData.appointmentId || !tokenData.patientId) {
+      return { ok: false, message: 'This appointment code is missing its patient or booking.' };
+    }
+
+    const expiration = tokenData.expiresAt?.toDate
+      ? tokenData.expiresAt.toDate()
+      : new Date(tokenData.expiresAt);
+    if (Number.isNaN(expiration.getTime()) || expiration.getTime() < Date.now()) {
+      return { ok: false, message: 'This appointment code has expired.' };
+    }
+
+    const patientReference = doc(db, 'users', tokenData.patientId);
+    const appointmentReference = doc(db, 'appointments', tokenData.appointmentId);
+    const [patientSnapshot, appointmentSnapshot] = await Promise.all([
+      transaction.get(patientReference),
+      transaction.get(appointmentReference),
+    ]);
+    if (!patientSnapshot.exists() || !appointmentSnapshot.exists()) {
+      return { ok: false, message: 'The patient account for this code could not be found.' };
+    }
+
+    const patient = patientSnapshot.data();
+    const patientRole = patient.role;
+    if (patientRole !== 'p' && patientRole !== 'patient') {
+      return { ok: false, message: 'The code does not belong to a patient account.' };
+    }
+
+    const queueReference = doc(collection(db, 'queue'));
+    transaction.update(tokenReference, {
+      isUsed: true,
+      usedAt: new Date().toISOString(),
+    });
+    transaction.update(appointmentReference, {
+      status: 'checked-in',
+      checkInTime: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    transaction.set(queueReference, {
+      appointmentId: tokenData.appointmentId,
+      patientId: tokenData.patientId,
+      patientName: patient.name || 'Patient',
+      status: 'waiting',
+      createdAt: new Date().toISOString(),
+    });
+
+    return {
+      ok: true,
+      appointmentId: tokenData.appointmentId,
+      patientId: tokenData.patientId,
+      patientName: patient.name || 'Patient',
+      phoneNumber: patient.phoneNumber || '',
+      email: patient.email || '',
+      accountVerified: patient.accountVerified === true || patient.accountStatus === 'active',
+    };
+  });
 }
 
 /** subscribeToQueue

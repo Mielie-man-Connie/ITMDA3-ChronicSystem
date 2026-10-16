@@ -11,7 +11,8 @@
 //
 // WHAT LIVES HERE (and why it does NOT go to Firebase):
 //   - Appointment tokens — cached at booking time so the QR screen works offline
-//   - Chronic illness data — sensitive medical data that must never reach the server
+//   - ICD-10 codes and update metadata — stored by patient ID on this device
+//     and shared with clinic staff only through QR codes
 //
 // SETUP:
 //   Install AsyncStorage if you have not already:
@@ -197,23 +198,19 @@ export async function clearCachedAppointments() {
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 2 — LOCAL HEALTH DATA
 //
-// Chronic illness data is stored on-device only and never sent to Firestore.
-// It is written here when the patient scans the doctor's activation QR code.
-// The QR screen and home screen read from here to check verification status.
+// ICD-10 data and its update metadata are stored on-device only and never sent
+// to Firestore. The patient QR generator reads this record for offline use.
 //
-// The only value that ever reaches the server is isChronicVerified (boolean),
-// which is passed at check-in time to confirm the patient has chronic status.
-// The actual conditions and medications stay on the device.
+// ICD-10 codes remain in patient-scoped local storage. When the patient chooses
+// to show their appointment QR, the codes are carried to clinic staff in that QR;
+// they are not written to Firestore.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** saveLocalHealthData
- * Saves the patient's chronic illness data to local device storage.
+/** Legacy storage for older free-text condition and medication data.
  *
- * Call this from the QR scanner screen after the patient scans the doctor's
- * activation QR. The QR encodes a JSON object containing the conditions and
- * medications — decode it and pass the arrays here.
+ * The current QR flow stores ICD-10 codes with saveLocalIcd10Record instead.
  *
- * This data NEVER leaves the device.
+ * This legacy data is not included in the current QR flow.
  *
  * @param {string[]} chronicConditions - e.g. ['Hypertension', 'Diabetes']
  * @param {string[]} medicationList    - e.g. ['Metformin 500mg', 'Amlodipine 5mg']
@@ -244,7 +241,7 @@ export async function saveLocalHealthData(chronicConditions, medicationList) {
 }
 
 /** getLocalHealthData
- * Returns the chronic illness data stored on this device.
+ * Returns legacy free-text health data stored on this device.
  *
  * Works completely offline.
  * Returns safe default values if nothing has been saved yet.
@@ -289,9 +286,111 @@ export async function getLocalHealthData() {
  */
 export async function clearLocalHealthData() {
   try {
-    await AsyncStorage.removeItem(HEALTH_DATA_KEY);
+    const keys = await AsyncStorage.getAllKeys();
+    const healthKeys = keys.filter(
+      (key) => key === HEALTH_DATA_KEY || key.startsWith(`${HEALTH_DATA_KEY}:`),
+    );
+    if (healthKeys.length > 0) await AsyncStorage.multiRemove(healthKeys);
   } catch (error) {
     console.error('[Cache] clearLocalHealthData failed:', error);
+  }
+}
+
+export type LocalIcd10Record = {
+  localId: string;
+  icd10Codes: string[];
+  lastUpdatedAt: string;
+  lastUpdatedByDoctorId: string;
+};
+
+function makeLocalId(): string {
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** Replaces the ICD-10 record stored locally for the patient. */
+export async function saveLocalIcd10Record(
+  patientId: string,
+  record: Omit<LocalIcd10Record, 'localId'> & { localId?: string },
+) {
+  if (typeof patientId !== 'string' || !patientId.trim()) {
+    throw new Error('A patient ID is required to save local ICD-10 codes.');
+  }
+  const { icd10Codes, lastUpdatedAt, lastUpdatedByDoctorId } = record;
+  if (
+    !Array.isArray(icd10Codes) ||
+    icd10Codes.length > 10 ||
+    !icd10Codes.every((code: unknown) => typeof code === 'string' && code.trim())
+  ) {
+    throw new Error('ICD-10 codes must be a list of up to 10 non-empty code strings.');
+  }
+  if (Number.isNaN(Date.parse(lastUpdatedAt)) || typeof lastUpdatedByDoctorId !== 'string') {
+    throw new Error('A valid ICD-10 update time and doctor ID are required.');
+  }
+
+  const normalizedCodes = [...new Set(icd10Codes.map((code) => code.trim().toUpperCase()))];
+  try {
+    const storageKey = `${HEALTH_DATA_KEY}:${patientId}`;
+    const stored = await AsyncStorage.getItem(storageKey);
+    const existing = stored ? JSON.parse(stored) : {};
+    await AsyncStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...(typeof existing === 'object' && existing !== null ? existing : {}),
+        icd10Codes: normalizedCodes,
+        localId:
+          typeof record.localId === 'string' && record.localId.trim()
+            ? record.localId
+            : typeof existing?.localId === 'string' && existing.localId.trim()
+              ? existing.localId
+              : makeLocalId(),
+        lastUpdatedAt,
+        lastUpdatedByDoctorId,
+      }),
+    );
+  } catch (error) {
+    console.error('[Cache] saveLocalIcd10Record failed:', error);
+    throw new Error('Could not save ICD-10 codes to this device. Please try again.');
+  }
+}
+
+/** Reads (and initializes) the complete ICD-10 record stored on this device. */
+export async function getLocalIcd10Record(patientId: string): Promise<LocalIcd10Record> {
+  if (typeof patientId !== 'string' || !patientId.trim()) {
+    throw new Error('A patient ID is required to read local ICD-10 codes.');
+  }
+  try {
+    const storageKey = `${HEALTH_DATA_KEY}:${patientId}`;
+    const stored = await AsyncStorage.getItem(storageKey);
+    const data = stored ? JSON.parse(stored) : {};
+    if (typeof data !== 'object' || data === null) {
+      throw new Error('Stored ICD-10 data has an invalid format.');
+    }
+    const codes: unknown[] = Array.isArray(data.icd10Codes) ? data.icd10Codes : [];
+    if (codes.length > 10) {
+      throw new Error('Stored ICD-10 data exceeds the 10-code limit.');
+    }
+    const validCodes = codes.filter(
+      (code: unknown): code is string => typeof code === 'string' && code.trim().length > 0,
+    );
+    if (validCodes.length !== codes.length) {
+      throw new Error('Stored ICD-10 data has an invalid format.');
+    }
+    const record: LocalIcd10Record = {
+      localId:
+        typeof data.localId === 'string' && data.localId.trim() ? data.localId : makeLocalId(),
+      icd10Codes: [...new Set(validCodes.map((code) => code.trim().toUpperCase()))],
+      lastUpdatedAt:
+        typeof data.lastUpdatedAt === 'string' && !Number.isNaN(Date.parse(data.lastUpdatedAt))
+          ? data.lastUpdatedAt
+          : '',
+      lastUpdatedByDoctorId:
+        typeof data.lastUpdatedByDoctorId === 'string' ? data.lastUpdatedByDoctorId : '',
+    };
+    await AsyncStorage.setItem(storageKey, JSON.stringify(record));
+    return record;
+  } catch (error) {
+    console.error('[Cache] getLocalIcd10Record failed:', error);
+    throw new Error('Could not read the ICD-10 codes stored on this device.');
   }
 }
 

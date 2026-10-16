@@ -406,6 +406,7 @@ export default function SettingsScreen() {
     role: Role;
     email: string;
     phoneNumber: string;
+    accountActive: boolean;
   } | null>(null);
   const [profileError, setProfileError] = useState('');
   const [profileModalVisible, setProfileModalVisible] = useState(false);
@@ -430,6 +431,7 @@ export default function SettingsScreen() {
           email: profile.email || '',
           phoneNumber: profile.phoneNumber || '',
           role,
+          accountActive: profile.accountVerified === true || profile.accountStatus === 'active',
         });
         setProfileError('');
       })
@@ -650,9 +652,14 @@ export default function SettingsScreen() {
           </View>
 
           <View style={styles.profileInfo}>
-            <Text style={{ fontSize: size + 3, fontWeight: '700', color: ui.c.text }}>
-              {user?.name || 'Loading profile…'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: size + 3, fontWeight: '700', color: ui.c.text }}>
+                {user?.name || 'Loading profile…'}
+              </Text>
+              {user?.accountActive && (
+                <Ionicons name="warning" size={18} color={ui.c.warning} accessibilityLabel="Account is activated" />
+              )}
+            </View>
             <Text style={{ fontSize: size - 3, color: ui.c.textSecondary, marginTop: 3 }}>
               {user?.email || profileError || ''}
             </Text>

@@ -23,7 +23,13 @@ const HOTBAR_CONFIG = {
         {
             key: "qr",
             icon: "qr-code-outline",
-            screen: "QR",
+            screen: "Generate QR",
+            route: "/qrgenerator",
+        },
+        {
+            key: "scan",
+            icon: "scan-outline",
+            screen: "Scanner",
             route: "/qrscanner",
         },
         {
