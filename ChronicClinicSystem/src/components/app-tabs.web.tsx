@@ -7,6 +7,7 @@ import {
   TabListProps,
 } from 'expo-router/ui';
 import { SymbolView } from 'expo-symbols';
+import type { Href } from 'expo-router';
 import { Pressable, View, StyleSheet } from 'react-native';
 
 import { ExternalLink } from './external-link';
@@ -25,8 +26,8 @@ export default function AppTabs() {
           <TabTrigger name="home" href="/" asChild>
             <TabButton>Home</TabButton>
           </TabTrigger>
-          <TabTrigger name="explore" href="/explore" asChild>
-            <TabButton>Explore</TabButton>
+          <TabTrigger name="doctor" href={'/doctor' as Href} asChild>
+            <TabButton>Patients</TabButton>
           </TabTrigger>
           <TabTrigger name="calendar" href="/calendar" asChild>
             <TabButton>Calendar</TabButton>
