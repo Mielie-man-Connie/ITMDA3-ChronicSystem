@@ -39,7 +39,9 @@ import {
   orderBy,
   onSnapshot,
   writeBatch,
-  runTransaction
+  runTransaction,
+  deleteDoc,
+  Timestamp
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 
@@ -64,15 +66,17 @@ import { cacheAppointment } from './cache';
  *
  * @param {string} email          - The user's email address
  * @param {string} password       - The user's password (min 6 characters)
- * @param {object} additionalData - Must include: name (string), phoneNumber (string)
+ * @param {object} additionalData - Must include name, phoneNumber, idNumber, and homeAddress
  *                                  Optional: role (string) — defaults to 'p' (patient)
  * @returns {object} Firebase Auth user object containing uid, email, etc.
- * @throws If name or phoneNumber are missing, or if the email is already registered
+ * @throws If a required profile field is missing, or if the email is already registered
  *
  * Usage example:
  *   const user = await registerUser('jan@email.com', 'pass123', {
  *     name: 'Jan Botha',
  *     phoneNumber: '0821234567',
+ *     idNumber: '1234567890123',
+ *     homeAddress: '1 Example Street, Cape Town',
  *   });
  *   console.log(user.uid);
  */
@@ -89,6 +93,12 @@ export async function registerUser(email, password, additionalData = {}) {
   if (typeof additionalData.phoneNumber !== 'string' || !additionalData.phoneNumber.trim()) {
     throw new Error('Phone number is required to register a user.');
   }
+  if (typeof additionalData.idNumber !== 'string' || !additionalData.idNumber.trim()) {
+    throw new Error('ID number is required to register a user.');
+  }
+  if (typeof additionalData.homeAddress !== 'string' || !additionalData.homeAddress.trim()) {
+    throw new Error('Home address is required to register a user.');
+  }
 
   // Create the Firebase Auth account — handles password hashing and session
   const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -100,6 +110,8 @@ export async function registerUser(email, password, additionalData = {}) {
     email: user.email,
     name: additionalData.name.trim(),
     phoneNumber: additionalData.phoneNumber.trim(),
+    idNumber: additionalData.idNumber.trim(),
+    homeAddress: additionalData.homeAddress.trim(),
     createdAt: timestamp,
     role: additionalData.role || 'p',
     updatedAt: timestamp,
@@ -160,7 +172,7 @@ export async function logoutUser() {
  * For the currently signed-in user, use getCurrentUserProfile() instead.
  *
  * @param {string} uid - The Firebase Auth user ID
- * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
+ * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, idNumber?: string, homeAddress?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
  * @throws If no document exists for that UID
  *
  * Usage example:
@@ -177,9 +189,9 @@ export async function getUserById(uid) {
   throw new Error('User profile not found');
 }
 
-/** Loads ICD-10 definitions from the chronic_illnesses Firestore collection. */
+/** Loads ICD-10 definitions from the chronic-illnesses Firestore collection. */
 export async function getChronicIllnesses() {
-  const snapshot = await getDocs(collection(db, 'chronic_illnesses'));
+  const snapshot = await getDocs(collection(db, 'chronic-illnesses'));
   return snapshot.docs
     .map((illnessDocument) => {
       const illness = illnessDocument.data();
@@ -240,7 +252,7 @@ export async function setPatientAccountActivation(uid, active) {
  * Use this in screens that need the logged-in user's data without having
  * to pass the uid around. HomeScreen and ProfileScreen both use this.
  *
- * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
+ * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, idNumber?: string, homeAddress?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
  * @throws If no user is signed in
  *
  * Usage example:
@@ -257,7 +269,7 @@ export async function getCurrentUserProfile() {
  * Updates one or more editable fields on a user's Firestore profile.
  *
  * Call this from the Profile/Settings screen when the user saves changes.
- * Only name, phoneNumber, and role can be changed through this function.
+ * Only name, phoneNumber, idNumber, homeAddress, and role can be changed through this function.
  * Email and accountVerified have their own dedicated functions.
  *
  * @param {string} uid           - The Firebase Auth UID of the user to update
@@ -269,7 +281,7 @@ export async function getCurrentUserProfile() {
  *   await updateUserProfile('abc123', { name: 'Jan', phoneNumber: '0829999999' });
  */
 export async function updateUserProfile(uid, updatedFields) {
-  const allowedFields = ['name', 'phoneNumber', 'role'];
+  const allowedFields = ['name', 'phoneNumber', 'idNumber', 'homeAddress', 'role'];
   const updates = Object.entries(updatedFields);
   if (
     updates.length === 0 ||
@@ -281,6 +293,54 @@ export async function updateUserProfile(uid, updatedFields) {
   await updateDoc(docRef, {
     ...Object.fromEntries(updates),
     updatedAt: new Date().toISOString()
+  });
+}
+
+/** Updates a user profile from the administrator console. */
+export async function updateAdminUserProfile(uid, updatedFields) {
+  await requireAdminProfile();
+  if (typeof uid !== 'string' || !uid.trim() || !updatedFields || typeof updatedFields !== 'object' || Array.isArray(updatedFields)) {
+    throw new Error('A user ID and profile fields are required.');
+  }
+  const allowedFields = [
+    'name',
+    'email',
+    'phoneNumber',
+    'idNumber',
+    'homeAddress',
+    'role',
+    'clinicId',
+    'accountVerified',
+    'accountStatus',
+  ];
+  const updates = Object.entries(updatedFields);
+  if (!updates.length || updates.some(([field]) => field === 'id' || field === 'updatedAt')) {
+    throw new Error('The admin profile update is empty or contains a reserved field.');
+  }
+  for (const [field, value] of updates) {
+    if (field === 'accountVerified') {
+      if (typeof value !== 'boolean') throw new Error(`${field} must be true or false.`);
+    } else if (allowedFields.includes(field) && typeof value !== 'string') {
+      throw new Error(`${field} must be text.`);
+    }
+  }
+  if (updates.some(([field, value]) =>
+    ['name', 'email', 'phoneNumber', 'idNumber', 'role'].includes(field) &&
+    typeof value === 'string' &&
+    !value.trim()
+  )) {
+    throw new Error('Name, email, phone number, ID number, and role cannot be blank.');
+  }
+  const nextRole = updatedFields.role;
+  if (nextRole !== undefined && !['p', 'd', 'r', 'a'].includes(nextRole)) {
+    throw new Error('Role must be p (patient), d (doctor), r (receptionist), or a (admin).');
+  }
+  if (uid.trim() === auth.currentUser?.uid && nextRole !== undefined && nextRole !== 'a') {
+    throw new Error('You cannot remove administrator access from your own profile.');
+  }
+  await updateDoc(doc(db, 'users', uid.trim()), {
+    ...updatedFields,
+    updatedAt: new Date().toISOString(),
   });
 }
 
@@ -922,10 +982,35 @@ export async function getClinicDoctors() {
   return snapshot.docs.map((doctorDoc) => ({ id: doctorDoc.id, ...doctorDoc.data() }));
 }
 
-/** @returns {Promise<Array<{id: string, name?: string, dailySlotCapacity?: number}>>} */
+function normalizeClinicNumbers(value) {
+  if (typeof value === 'string' || typeof value === 'number') {
+    const number = String(value).trim();
+    return number ? [number] : [];
+  }
+  if (Array.isArray(value)) return value.flatMap(normalizeClinicNumbers);
+  if (value && typeof value === 'object') {
+    const directNumbers = [value.number, value.phoneNumber, value.phone]
+      .flatMap(normalizeClinicNumbers);
+    if (directNumbers.length) return directNumbers;
+    return Object.values(value).flatMap(normalizeClinicNumbers);
+  }
+  return [];
+}
+
+/** @returns {Promise<Array<{id: string, name?: string, numbers: string[], dailySlotCapacity?: number}>>} */
 export async function getClinics() {
   const snapshot = await getDocs(collection(db, 'clinics'));
-  return snapshot.docs.map((clinicDoc) => ({ id: clinicDoc.id, ...clinicDoc.data() }));
+  return snapshot.docs.map((clinicDoc) => {
+    const data = clinicDoc.data();
+    const numbers = normalizeClinicNumbers(
+      data.numbers ?? data.number ?? data.phoneNumber ?? data.phone ?? data.contactNumber,
+    );
+    return {
+      id: clinicDoc.id,
+      ...data,
+      numbers,
+    };
+  });
 }
 
 /** searchUsersByName
@@ -950,6 +1035,19 @@ export async function searchUsersByName(searchText) {
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
+/** Searches all user profiles by name for the administrator autocomplete. */
+export async function searchAdminUsersByName(searchText) {
+  await requireAdminProfile();
+  const search = typeof searchText === 'string' ? searchText.trim().toLocaleLowerCase() : '';
+  if (!search) return [];
+  const snapshot = await getDocs(collection(db, 'users'));
+  return snapshot.docs
+    .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
+    .filter((user) => typeof user.name === 'string' && user.name.toLocaleLowerCase().includes(search))
+    .sort((left, right) => (left.name || '').localeCompare(right.name || ''))
+    .slice(0, 20);
+}
+
 /** @returns {Promise<Array<{id: string, name?: string, phoneNumber?: string, role?: string}>>} */
 export async function searchUsersByPhoneNumber(searchText) {
   const search = typeof searchText === 'string'
@@ -968,16 +1066,16 @@ export async function searchUsersByPhoneNumber(searchText) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 6 — CLINIC AND ADMIN MANAGEMENT
-// Functions for creating clinics, emergency numbers, and notifications.
+// Functions for creating clinics and notifications.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** createClinic
  * Saves a new clinic document to the clinics collection.
  *
- * @param {{ address: string, dailySlotCapacity: number, name: string, province: string }}
+ * @param {{ address: string, dailySlotCapacity: number, name: string, numbers?: string[], province: string }}
  * @returns {string} The new Firestore document ID
  */
-export async function createClinic({ address, dailySlotCapacity, name, province }) {
+export async function createClinic({ address, dailySlotCapacity, name, numbers = [], province }) {
   if (!address?.trim() || !name?.trim() || !province?.trim()) {
     throw new Error('Address, clinic name, and province are required.');
   }
@@ -985,28 +1083,15 @@ export async function createClinic({ address, dailySlotCapacity, name, province 
   if (!Number.isInteger(capacity) || capacity < 1) {
     throw new Error('Daily slot capacity must be a positive whole number.');
   }
+  const clinicNumbers = (Array.isArray(numbers) ? numbers : [numbers])
+    .filter((number) => typeof number === 'string' && number.trim())
+    .map((number) => number.trim());
   const reference = await addDoc(collection(db, 'clinics'), {
     address: address.trim(),
     dailySlotCapacity: capacity,
     name: name.trim(),
+    numbers: clinicNumbers,
     province: province.trim(),
-  });
-  return reference.id;
-}
-
-/** createEmergencyNumber
- * Saves an emergency contact number linked to a clinic.
- *
- * @param {{ clinicId: string, number: string }}
- * @returns {string} The new Firestore document ID
- */
-export async function createEmergencyNumber({ clinicId, number }) {
-  if (!clinicId?.trim() || !number?.trim()) {
-    throw new Error('Clinic ID and emergency number are required.');
-  }
-  const reference = await addDoc(collection(db, 'numbers'), {
-    clinicId: clinicId.trim(),
-    number: number.trim(),
   });
   return reference.id;
 }
@@ -1044,7 +1129,8 @@ export async function createNotification({ deliveryStatus = 'pending', message, 
  * @returns {Array} Array of { name, documents, error? } objects
  */
 export async function getFirestoreCollections() {
-  const names = ['appointments', 'clinics', 'notifications', 'numbers', 'queue', 'tokens', 'users'];
+  await requireAdminProfile();
+  const names = ['appointments', 'chronic-illnesses', 'clinics', 'notifications', 'queue', 'tokens', 'users'];
   return Promise.all(
     names.map(async (name) => {
       try {
@@ -1065,4 +1151,83 @@ export async function getFirestoreCollections() {
       }
     })
   );
+}
+
+const ADMIN_MANAGED_COLLECTIONS = new Set([
+  'appointments',
+  'chronic-illnesses',
+  'clinics',
+  'notifications',
+  'queue',
+  'tokens',
+  'users',
+]);
+
+async function requireAdminProfile() {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in with an administrator account to manage database data.');
+  const profile = await getDoc(doc(db, 'users', user.uid));
+  const role = profile.exists() ? profile.data().role : undefined;
+  if (role !== 'a') {
+    throw new Error('Administrator access is required for database management.');
+  }
+}
+
+function assertAdminCollection(collectionName) {
+  if (!ADMIN_MANAGED_COLLECTIONS.has(collectionName)) {
+    throw new Error(`The ${collectionName} collection is not available in the admin console.`);
+  }
+}
+
+/** Reads the collections available in the administrator database console. */
+export async function getAdminFirestoreCollections() {
+  return getFirestoreCollections();
+}
+
+/** Creates a new Firestore document or replaces an existing document by ID. */
+export async function saveAdminFirestoreDocument(collectionName, documentId, data) {
+  await requireAdminProfile();
+  assertAdminCollection(collectionName);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Document data must be a JSON object.');
+  }
+  if (
+    collectionName === 'users' &&
+    documentId === auth.currentUser?.uid &&
+    data.role !== 'a'
+  ) {
+    throw new Error('You cannot remove administrator access from your own profile.');
+  }
+
+  const hydrate = (value) => {
+    if (Array.isArray(value)) return value.map(hydrate);
+    if (value && typeof value === 'object') {
+      if (
+        value.type === 'firestore/timestamp/1.0' &&
+        Number.isInteger(value.seconds) &&
+        Number.isInteger(value.nanoseconds)
+      ) {
+        return new Timestamp(value.seconds, value.nanoseconds);
+      }
+      return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, hydrate(nested)]));
+    }
+    return value;
+  };
+  const documentData = hydrate(data);
+  if (typeof documentId === 'string' && documentId.trim()) {
+    await setDoc(doc(db, collectionName, documentId.trim()), documentData);
+    return documentId.trim();
+  }
+  const reference = await addDoc(collection(db, collectionName), documentData);
+  return reference.id;
+}
+
+/** Deletes a Firestore document by collection and document ID. */
+export async function deleteAdminFirestoreDocument(collectionName, documentId) {
+  await requireAdminProfile();
+  assertAdminCollection(collectionName);
+  if (typeof documentId !== 'string' || !documentId.trim()) {
+    throw new Error('A document ID is required to delete a record.');
+  }
+  await deleteDoc(doc(db, collectionName, documentId.trim()));
 }

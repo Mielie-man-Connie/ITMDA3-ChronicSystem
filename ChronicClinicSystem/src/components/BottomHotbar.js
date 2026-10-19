@@ -69,6 +69,12 @@ const HOTBAR_CONFIG = {
       route: "/settings",
     },
     {
+      key: "calendar",
+      icon: "calendar-outline",
+      screen: "Calendar",
+      route: "/calendar",
+    },
+    {
       key: "scan",
       icon: "scan-outline",
       screen: "Scanner",

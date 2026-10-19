@@ -16,6 +16,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,9 +30,10 @@ import {
   getClinicPatients,
   getCurrentUserProfile,
   getPatientAppointments,
+  getClinicDoctors,
   subscribeToAppointments,
 } from '../../services/firebase';
-import { useFocusEffect } from 'expo-router';
+import { Link, useFocusEffect, type Href } from 'expo-router';
 
 // Update this import path to wherever your BottomHotbar component lives
 import BottomHotbar from '../../components/BottomHotbar';
@@ -58,6 +60,8 @@ type Appointment = {
   timeSlot?: string;
   patientId?: string;
   doctorId?: string;
+  doctorName?: string;
+  clinicId?: string;
   status?: string;
 };
 
@@ -67,6 +71,8 @@ type Patient = {
   accountVerified?: boolean;
   accountStatus?: string;
 };
+
+type Doctor = { id: string; name?: string };
 
 function isAccountActive(patient: Patient): boolean {
   return patient.accountVerified === true || patient.accountStatus === 'active';
@@ -82,8 +88,10 @@ export default function HomeScreen() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [role, setRole] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
+  const [currentClinicId, setCurrentClinicId] = useState('');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -98,10 +106,18 @@ export default function HomeScreen() {
       try {
         const user = await getCurrentUserProfile();
         if (!isActive) return;
-        setRole(user.role || '');
+        const roleCode = user.role === 'patient'
+          ? 'p'
+          : user.role === 'doctor'
+            ? 'd'
+            : user.role === 'receptionist'
+              ? 'r'
+              : user.role || '';
+        setRole(roleCode);
         setCurrentUserId(user.id);
+        setCurrentClinicId(user.clinicId || '');
 
-        if (user.role === 'p') {
+        if (roleCode === 'p') {
           const userAppointments = await getPatientAppointments(user.id);
           if (!isActive) return;
           setAppointments(userAppointments);
@@ -112,14 +128,16 @@ export default function HomeScreen() {
             },
             user.id,
           );
-        } else if (user.role === 'd' || user.role === 'r') {
-          const [allAppointments, clinicPatients] = await Promise.all([
+        } else if (roleCode === 'd' || roleCode === 'r') {
+          const [allAppointments, clinicPatients, clinicDoctors] = await Promise.all([
             getAllAppointments(),
             getClinicPatients(),
+            getClinicDoctors(),
           ]);
           if (!isActive) return;
           setAppointments(allAppointments);
           setPatients(clinicPatients);
+          setDoctors(clinicDoctors);
           unsubscribe = subscribeToAppointments(
             (updates: Appointment[]) => isActive && setAppointments(updates),
             (listenerError: Error) => {
@@ -144,18 +162,6 @@ export default function HomeScreen() {
     };
   }, []),
   );
-
-  // Filter appointments to today only — used by the receptionist view
-  const today = new Date();
-  const todaysAppointments = appointments.filter((appointment) => {
-    const date = getAppointmentDate(appointment.appointmentDate);
-    return (
-      date &&
-      date.getFullYear() === today.getFullYear() &&
-      date.getMonth() === today.getMonth() &&
-      date.getDate() === today.getDate()
-    );
-  });
 
   return (
     <View style={styles.screen}>
@@ -185,25 +191,44 @@ export default function HomeScreen() {
           />
         )}
 
-        {!loading && !error && role === 'd' && (
+        {!loading && !error && (role === 'd' || role === 'r') && (
           <DoctorHome
             appointments={appointments}
             patients={patients}
+            doctors={doctors}
             currentUserId={currentUserId}
+            currentClinicId={currentClinicId}
+            role={role === 'd' ? 'doctor' : 'receptionist'}
             styles={styles}
           />
         )}
 
-        {!loading && !error && role === 'r' && (
-          <ReceptionistHome
-            appointments={todaysAppointments}
-            patients={patients}
-            styles={styles}
-          />
+        {!loading && !error && role === 'a' && (
+          <View style={styles.calendarCard}>
+            <Text style={styles.sectionTitle}>Administrator</Text>
+            <Text style={styles.messageText}>
+              Manage clinic database records and test QR workflows from the admin console.
+            </Text>
+            <Link href={'/admin' as Href} asChild>
+              <Pressable
+                accessibilityRole="button"
+                style={{
+                  marginTop: 16,
+                  minHeight: 48,
+                  borderRadius: 10,
+                  backgroundColor: theme.colors.primary,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: theme.colors.onPrimary, fontWeight: '700' }}>Open admin console</Text>
+              </Pressable>
+            </Link>
+          </View>
         )}
 
         {/* Fallback for unknown roles */}
-        {!loading && !error && role !== 'p' && role !== 'd' && role !== 'r' && (
+        {!loading && !error && role !== 'p' && role !== 'd' && role !== 'r' && role !== 'a' && (
           <Text style={styles.messageText}>
             No home screen is available for this account role.
           </Text>
@@ -225,13 +250,32 @@ export default function HomeScreen() {
 // appointments: array fetched from getPatientAppointments() in firebase.js
 // ─────────────────────────────────────────────────────────────────────────────
 function PatientHome({ appointments, styles }: { appointments: Appointment[]; styles: HomeStyles }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const twoMonthsAhead = new Date(
+    today.getFullYear(),
+    today.getMonth() + 2,
+    1,
+  );
+  const lastDayOfTargetMonth = new Date(
+    twoMonthsAhead.getFullYear(),
+    twoMonthsAhead.getMonth() + 1,
+    0,
+  ).getDate();
+  twoMonthsAhead.setDate(Math.min(today.getDate(), lastDayOfTargetMonth));
+  twoMonthsAhead.setHours(23, 59, 59, 999);
+  const upcomingAppointments = appointments.filter((appointment) => {
+    const date = getAppointmentDate(appointment.appointmentDate);
+    return date !== null && date >= today && date <= twoMonthsAhead;
+  });
+
   return (
     <View>
       <Text style={styles.sectionTitle}>Calendar Summary</Text>
 
       <View style={styles.calendarCard}>
-        {appointments.length > 0 ? (
-          appointments.map((appointment) => {
+        {upcomingAppointments.length > 0 ? (
+          upcomingAppointments.map((appointment) => {
             // Convert Firestore date to something readable
             const date = getAppointmentDate(appointment.appointmentDate);
             const dateLabel = date ? date.toLocaleDateString('en-ZA') : 'Date not set';
@@ -265,7 +309,23 @@ function PatientHome({ appointments, styles }: { appointments: Appointment[]; st
 // appointments: fetched from getAllAppointments() in firebase.js
 // patients:     fetched from getClinicPatients() in firebase.js
 // ─────────────────────────────────────────────────────────────────────────────
-function DoctorHome({ appointments, patients, currentUserId, styles }: { appointments: Appointment[]; patients: Patient[]; currentUserId: string; styles: HomeStyles }) {
+function DoctorHome({
+  appointments,
+  patients,
+  doctors,
+  currentUserId,
+  currentClinicId,
+  role,
+  styles,
+}: {
+  appointments: Appointment[];
+  patients: Patient[];
+  doctors: Doctor[];
+  currentUserId: string;
+  currentClinicId: string;
+  role: 'doctor' | 'receptionist';
+  styles: HomeStyles;
+}) {
   const { theme } = useAppTheme();
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -273,7 +333,9 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
   const tenDayLimitKey = `${tenDayLimit.getFullYear()}-${String(tenDayLimit.getMonth() + 1).padStart(2, '0')}-${String(tenDayLimit.getDate()).padStart(2, '0')}`;
   const upcomingAppointments = appointments.filter((appointment) => {
     const date = getAppointmentDate(appointment.appointmentDate);
-    if (!date || appointment.doctorId !== currentUserId || appointment.status === 'cancelled') return false;
+    if (!date || appointment.status === 'cancelled') return false;
+    if (role === 'doctor' && appointment.doctorId !== currentUserId) return false;
+    if (role === 'receptionist' && currentClinicId && appointment.clinicId && appointment.clinicId !== currentClinicId) return false;
     const appointmentKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     return appointmentKey >= todayKey && appointmentKey < tenDayLimitKey;
   }).sort((a, b) => {
@@ -286,7 +348,8 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
       .filter((appointment) => appointment.patientId)
       .map((appointment) => appointment.patientId as string),
   );
-  const doctorPatients = patients.filter((patient) => bookedPatientIds.has(patient.id));
+  const scheduledPatients = patients.filter((patient) => bookedPatientIds.has(patient.id));
+  const doctorNames = new Map(doctors.map((doctor) => [doctor.id, doctor.name || 'Doctor']));
 
   return (
     <View>
@@ -300,7 +363,8 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
             const timeLabel = appointment.timeSlot || '';
 
             // Try to show the patient's name instead of just the appointment type
-            const patient = doctorPatients.find((p) => p.id === appointment.patientId);
+            const patient = scheduledPatients.find((p) => p.id === appointment.patientId);
+            const doctorName = appointment.doctorName || (appointment.doctorId ? doctorNames.get(appointment.doctorId) : undefined);
 
             return (
               <View key={appointment.id} style={styles.calendarItem}>
@@ -312,6 +376,11 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
                   <Text style={styles.appointmentDetails}>
                     {dateLabel}{timeLabel ? ` • ${timeLabel}` : ''}
                   </Text>
+                  {role === 'receptionist' && (
+                    <Text style={styles.appointmentDetails}>
+                      Doctor: {doctorName || 'Not assigned'}
+                    </Text>
+                  )}
                 </View>
               </View>
             );
@@ -324,8 +393,8 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
       <Text style={styles.sectionTitle}>Patient List</Text>
 
       <View style={styles.patientList}>
-        {doctorPatients.length > 0 ? (
-          doctorPatients.map((patient) => (
+        {scheduledPatients.length > 0 ? (
+          scheduledPatients.map((patient) => (
             <View key={patient.id} style={styles.patientRow}>
               <View style={styles.patientNameContainer}>
                 <View style={styles.patientLine} />
@@ -344,48 +413,6 @@ function DoctorHome({ appointments, patients, currentUserId, styles }: { appoint
         )}
       </View>
 
-    </View>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Receptionist Home
-// Shows today's appointments with patient names where available.
-// appointments: today's appointments filtered from getAllAppointments()
-// patients:     fetched from getClinicPatients() — used to look up patient names
-// ─────────────────────────────────────────────────────────────────────────────
-function ReceptionistHome({ appointments, patients, styles }: { appointments: Appointment[]; patients: Patient[]; styles: HomeStyles }) {
-  return (
-    <View>
-      <Text style={styles.sectionTitle}>Today's appointments</Text>
-
-      <View style={styles.calendarCard}>
-        {appointments.length > 0 ? (
-          appointments.map((appointment) => {
-            const date = getAppointmentDate(appointment.appointmentDate);
-            const timeLabel = appointment.timeSlot || (date ? date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : '');
-
-            // Look up the patient name by matching patientId to the patients array
-            const patient = patients.find((p) => p.id === appointment.patientId);
-
-            return (
-              <View key={appointment.id} style={styles.calendarItem}>
-                <View style={styles.calendarLine} />
-                <View>
-                  <Text style={styles.appointmentTitle}>
-                    {patient?.name || 'Unknown patient'}
-                  </Text>
-                  <Text style={styles.appointmentDetails}>
-                    {timeLabel}
-                  </Text>
-                </View>
-              </View>
-            );
-          })
-        ) : (
-          <Text style={styles.emptyText}>No appointments for today.</Text>
-        )}
-      </View>
     </View>
   );
 }

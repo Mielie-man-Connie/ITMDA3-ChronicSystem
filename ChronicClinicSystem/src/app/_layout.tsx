@@ -37,6 +37,7 @@ function RootNavigator() {
         <Stack.Screen name="patient" options={{ headerShown: false }} />
         <Stack.Screen name="doctor" options={{ headerShown: true, title: 'Your patients' }} />
         <Stack.Screen name="doctor/patient-info" options={{ headerShown: true }} />
+        <Stack.Screen name="admin" options={{ headerShown: false }} />
       </Stack>
     </>
   );

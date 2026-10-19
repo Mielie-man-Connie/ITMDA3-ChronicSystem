@@ -4,7 +4,6 @@ import {
   addPatientToQueue,
   bookAppointment,
   createClinic,
-  createEmergencyNumber,
   createNotification,
   getAllAppointments,
   getFirestoreCollections,
@@ -223,8 +222,7 @@ export default function FBTestScreen() {
   const [clinicCapacity, setClinicCapacity] = useState('');
   const [clinicName, setClinicName] = useState('');
   const [clinicProvince, setClinicProvince] = useState('');
-  const [numberClinicId, setNumberClinicId] = useState('');
-  const [emergencyNumber, setEmergencyNumber] = useState('');
+  const [clinicNumbers, setClinicNumbers] = useState('');
   const [notificationPatientId, setNotificationPatientId] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationStatus, setNotificationStatus] = useState('pending');
@@ -422,26 +420,18 @@ export default function FBTestScreen() {
         <Text style={styles.cardTitle}>Add a clinic</Text>
         <Field label="Clinic name" value={clinicName} onChange={setClinicName} />
         <Field label="Address" value={clinicAddress} onChange={setClinicAddress} />
+        <Field label="Clinic phone numbers (comma-separated)" value={clinicNumbers} onChange={setClinicNumbers} keyboardType="phone-pad" />
         <Field label="Province" value={clinicProvince} onChange={setClinicProvince} />
         <Field label="Daily slot capacity" value={clinicCapacity} onChange={setClinicCapacity} keyboardType="numeric" />
         <Button title="Save clinic" disabled={busy} onPress={() => void runAction(async () => {
           const id = await createClinic({
             address: clinicAddress,
-            dailySlotCapacity: clinicCapacity,
+            dailySlotCapacity: Number(clinicCapacity),
             name: clinicName,
+            numbers: clinicNumbers.split(',').map((number) => number.trim()).filter(Boolean),
             province: clinicProvince,
           });
           return `Clinic added. ID: ${id}`;
-        })} />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Add an emergency number</Text>
-        <Field label="Clinic ID" value={numberClinicId} onChange={setNumberClinicId} />
-        <Field label="Emergency number" value={emergencyNumber} onChange={setEmergencyNumber} keyboardType="phone-pad" />
-        <Button title="Save emergency number" disabled={busy} onPress={() => void runAction(async () => {
-          const id = await createEmergencyNumber({ clinicId: numberClinicId, number: emergencyNumber });
-          return `Emergency number added. ID: ${id}`;
         })} />
       </View>
 

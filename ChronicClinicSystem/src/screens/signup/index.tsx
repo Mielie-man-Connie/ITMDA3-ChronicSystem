@@ -20,12 +20,21 @@ export default function SignupScreen() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [idNumber, setIdNumber] = useState('');
+  const [homeAddress, setHomeAddress] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSignup = async () => {
-    if (!name.trim() || !phoneNumber.trim() || !email.trim() || !password) {
+    if (
+      !name.trim() ||
+      !phoneNumber.trim() ||
+      !idNumber.trim() ||
+      !homeAddress.trim() ||
+      !email.trim() ||
+      !password
+    ) {
       Alert.alert('Missing information', 'Please complete all fields.');
       return;
     }
@@ -43,6 +52,8 @@ export default function SignupScreen() {
       await registerUser(email.trim(), password, {
         name: name.trim(),
         phoneNumber: phoneNumber.trim(),
+        idNumber: idNumber.trim(),
+        homeAddress: homeAddress.trim(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Something went wrong.';
@@ -92,6 +103,28 @@ export default function SignupScreen() {
             placeholderTextColor={theme.colors.secondary}
             keyboardType="phone-pad"
             autoComplete="tel"
+          />
+
+          <Text style={styles.label}>ID number</Text>
+          <TextInput
+            style={styles.input}
+            value={idNumber}
+            onChangeText={setIdNumber}
+            placeholder="Your ID number"
+            placeholderTextColor={theme.colors.secondary}
+            keyboardType="default"
+            autoCapitalize="characters"
+          />
+
+          <Text style={styles.label}>Home address</Text>
+          <TextInput
+            style={[styles.input, styles.addressInput]}
+            value={homeAddress}
+            onChangeText={setHomeAddress}
+            placeholder="Your home address"
+            placeholderTextColor={theme.colors.secondary}
+            autoComplete="street-address"
+            multiline
           />
 
           <Text style={styles.label}>Email</Text>
@@ -185,6 +218,11 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
     backgroundColor: theme.colors.secondarySurface,
     fontSize: theme.fontSizes.body,
     color: theme.colors.darkest,
+  },
+  addressInput: {
+    height: 80,
+    paddingTop: theme.spacing.small,
+    textAlignVertical: 'top',
   },
   primaryButton: {
     height: 50,

@@ -15,7 +15,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as LocalAuthentication from 'expo-local-authentication';
 
 // Firebase imports for live authentication and role fetching
 import {
@@ -43,8 +42,6 @@ type Settings = {
   themeMode: ThemeMode;
   fontSize: 'small' | 'medium' | 'large';
   language: 'en' | 'ss' | 'zu' | 'af';
-  biometrics: boolean;
-  autoLock: '1' | '5' | '15';
   pushNotifications: boolean;
   reminderTime: 'day' | 'hours';
   lowDataMode: boolean;
@@ -59,8 +56,6 @@ const DEFAULT_SETTINGS: Settings = {
   themeMode: 'system',
   fontSize: 'medium',
   language: 'en',
-  biometrics: true,
-  autoLock: '5',
   pushNotifications: true,
   reminderTime: 'day',
   lowDataMode: false,
@@ -317,6 +312,8 @@ function EditProfileModal({
   visible,
   name,
   phoneNumber,
+  idNumber,
+  homeAddress,
   ui,
   onClose,
   onSave,
@@ -324,12 +321,16 @@ function EditProfileModal({
   visible: boolean;
   name: string;
   phoneNumber: string;
+  idNumber: string;
+  homeAddress: string;
   ui: UI;
   onClose: () => void;
-  onSave: (name: string, phoneNumber: string) => Promise<void>;
+  onSave: (name: string, phoneNumber: string, idNumber: string, homeAddress: string) => Promise<void>;
 }) {
   const [draftName, setDraftName] = useState(name);
   const [draftPhone, setDraftPhone] = useState(phoneNumber);
+  const [draftIdNumber, setDraftIdNumber] = useState(idNumber);
+  const [draftHomeAddress, setDraftHomeAddress] = useState(homeAddress);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -337,13 +338,15 @@ function EditProfileModal({
     if (!visible) return;
     setDraftName(name);
     setDraftPhone(phoneNumber);
+    setDraftIdNumber(idNumber);
+    setDraftHomeAddress(homeAddress);
     setSaveError('');
-  }, [visible, name, phoneNumber]);
+  }, [visible, name, phoneNumber, idNumber, homeAddress]);
 
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(draftName.trim(), draftPhone.trim());
+      await onSave(draftName.trim(), draftPhone.trim(), draftIdNumber.trim(), draftHomeAddress.trim());
       onClose();
       setSaveError('');
     } catch (error) {
@@ -376,13 +379,30 @@ function EditProfileModal({
             accessibilityLabel="Phone number"
             style={[styles.profileInput, { backgroundColor: ui.c.backgroundElement, color: ui.c.text, borderColor: ui.c.secondaryBorder, fontSize: ui.size }]}
           />
+          <TextInput
+            value={draftIdNumber}
+            onChangeText={setDraftIdNumber}
+            placeholder="ID number"
+            placeholderTextColor={ui.c.textSecondary}
+            accessibilityLabel="ID number"
+            style={[styles.profileInput, { backgroundColor: ui.c.backgroundElement, color: ui.c.text, borderColor: ui.c.secondaryBorder, fontSize: ui.size }]}
+          />
+          <TextInput
+            value={draftHomeAddress}
+            onChangeText={setDraftHomeAddress}
+            placeholder="Home address"
+            placeholderTextColor={ui.c.textSecondary}
+            accessibilityLabel="Home address"
+            multiline
+            style={[styles.profileInput, { backgroundColor: ui.c.backgroundElement, color: ui.c.text, borderColor: ui.c.secondaryBorder, fontSize: ui.size }]}
+          />
           <View style={styles.modalActions}>
             <Pressable onPress={onClose} style={[styles.profileAction, { backgroundColor: ui.c.backgroundSelected }]}>
               <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '600' }}>Cancel</Text>
             </Pressable>
             <Pressable
               onPress={() => void save()}
-              disabled={saving || !draftName.trim() || !draftPhone.trim()}
+              disabled={saving || !draftName.trim() || !draftPhone.trim() || !draftIdNumber.trim() || !draftHomeAddress.trim()}
               style={[styles.profileAction, { backgroundColor: ui.c.primarylight, opacity: saving ? 0.6 : 1 }]}
             >
               <Text style={{ color: ui.c.onPrimary, fontSize: ui.size, fontWeight: '600' }}>
@@ -406,6 +426,8 @@ export default function SettingsScreen() {
     role: Role;
     email: string;
     phoneNumber: string;
+    idNumber: string;
+    homeAddress: string;
     accountActive: boolean;
   } | null>(null);
   const [profileError, setProfileError] = useState('');
@@ -430,6 +452,8 @@ export default function SettingsScreen() {
           name: profile.name || 'User',
           email: profile.email || '',
           phoneNumber: profile.phoneNumber || '',
+          idNumber: profile.idNumber || '',
+          homeAddress: profile.homeAddress || '',
           role,
           accountActive: profile.accountVerified === true || profile.accountStatus === 'active',
         });
@@ -480,38 +504,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleBiometricToggle = async (value: boolean) => {
-    if (value) {
-      try {
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
-        if (!hasHardware || !isEnrolled) {
-          Alert.alert(
-            'Biometrics Unavailable',
-            'Your device does not support biometrics or none are enrolled.'
-          );
-          return;
-        }
-
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: 'Authenticate to enable biometric security',
-          fallbackLabel: 'Use passcode',
-        });
-
-        if (result.success) {
-          updateSetting('biometrics', true);
-        } else {
-          Alert.alert('Authentication Cancelled', 'Biometric verification failed.');
-        }
-      } catch (error) {
-        console.log('Biometric authentication error', error);
-      }
-    } else {
-      updateSetting('biometrics', false);
-    }
-  };
-
   const size = Math.round(17 * textScale);
 
   const ui: UI = {
@@ -530,7 +522,7 @@ export default function SettingsScreen() {
     .join('')
     .slice(0, 2);
 
-  const handleSaveProfile = async (name: string, phoneNumber: string) => {
+  const handleSaveProfile = async (name: string, phoneNumber: string, idNumber: string, homeAddress: string) => {
     if (!user) return;
     if (name.length < 2) {
       showMessage('Name needed', 'Enter your full name.');
@@ -540,8 +532,16 @@ export default function SettingsScreen() {
       showMessage('Phone number needed', 'Enter a phone number.');
       return;
     }
-    await updateUserProfile(user.id, { name, phoneNumber });
-    setUser({ ...user, name, phoneNumber });
+    if (!idNumber) {
+      showMessage('ID number needed', 'Enter your ID number.');
+      return;
+    }
+    if (!homeAddress) {
+      showMessage('Home address needed', 'Enter your home address.');
+      return;
+    }
+    await updateUserProfile(user.id, { name, phoneNumber, idNumber, homeAddress });
+    setUser({ ...user, name, phoneNumber, idNumber, homeAddress });
     showMessage('Profile updated', 'Your profile was saved to your account.');
   };
 
@@ -669,6 +669,12 @@ export default function SettingsScreen() {
             <Text style={{ fontSize: size - 3, color: ui.c.textSecondary, marginTop: 3 }}>
               {user?.phoneNumber || ''}
             </Text>
+            <Text style={{ fontSize: size - 3, color: ui.c.textSecondary, marginTop: 3 }}>
+              ID: {user?.idNumber || 'Not provided'}
+            </Text>
+            <Text style={{ fontSize: size - 3, color: ui.c.textSecondary, marginTop: 3 }}>
+              {user?.homeAddress || 'No home address provided'}
+            </Text>
             <View style={[styles.roleBadge, { backgroundColor: `${ui.c.primarylight}26` }]}>
               <Text style={[styles.roleBadgeText, { color: ui.c.primary, fontSize: size - 6 }]}>{user?.role.toUpperCase() || ''}</Text>
             </View>
@@ -764,39 +770,6 @@ export default function SettingsScreen() {
         <SectionTitle title="Security" ui={ui} />
         <Group ui={ui}>
           <Row
-            icon="finger-print-outline"
-            tint={ui.c.primarydark}
-            label="Fingerprint / Face unlock"
-            hint="Protects your health information"
-            ui={ui}
-            right={
-              <Toggle
-                label="Fingerprint or Face unlock"
-                value={settings.biometrics}
-                onChange={handleBiometricToggle}
-                ui={ui}
-              />
-            }
-          />
-          <Row
-            icon="lock-closed-outline"
-            tint={ui.c.primarydark}
-            label="Lock app after"
-            ui={ui}
-            below={
-              <Segmented
-                ui={ui}
-                selected={settings.autoLock}
-                onSelect={(value) => updateSetting('autoLock', value as Settings['autoLock'])}
-                options={[
-                  { value: '1', text: '1 min' },
-                  { value: '5', text: '5 min' },
-                  { value: '15', text: '15 min' },
-                ]}
-              />
-            }
-          />
-          <Row
             icon="key-outline"
             tint={ui.c.primarydark}
             label="Change password"
@@ -841,6 +814,8 @@ export default function SettingsScreen() {
         visible={profileModalVisible}
         name={user?.name || ''}
         phoneNumber={user?.phoneNumber || ''}
+        idNumber={user?.idNumber || ''}
+        homeAddress={user?.homeAddress || ''}
         ui={ui}
         onClose={() => setProfileModalVisible(false)}
         onSave={handleSaveProfile}

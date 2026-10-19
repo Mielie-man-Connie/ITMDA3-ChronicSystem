@@ -26,6 +26,8 @@ type PatientProfile = {
   id: string;
   name?: string;
   phoneNumber?: string;
+  idNumber?: string;
+  homeAddress?: string;
   accountVerified?: boolean;
   accountStatus?: string;
 };
@@ -36,6 +38,33 @@ function normalizeIcdCode(value: string): string {
 
 function normalizeConditionName(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+}
+
+function findCatalogueMatches(catalogue: Illness[], field: 'code' | 'name', term: string): Illness[] {
+  const normalizedTerm = field === 'code'
+    ? normalizeIcdCode(term)
+    : normalizeConditionName(term);
+  if (!normalizedTerm) return [];
+  return catalogue
+    .map((illness) => {
+      const value = field === 'code'
+        ? normalizeIcdCode(illness.code)
+        : normalizeConditionName(illness.name);
+      const rank = value === normalizedTerm
+        ? 0
+        : value.startsWith(normalizedTerm)
+          ? 1
+          : value.includes(normalizedTerm)
+            ? 2
+            : -1;
+      return { illness, rank };
+    })
+    .filter(({ rank }) => rank >= 0)
+    .sort(
+      (left, right) =>
+        left.rank - right.rank || left.illness.code.localeCompare(right.illness.code),
+    )
+    .map(({ illness }) => illness);
 }
 
 function isAccountActive(profile: PatientProfile): boolean {
@@ -230,8 +259,8 @@ export default function PatientDataModifierScreen() {
           getCurrentUserProfile(),
           getChronicIllnesses(),
         ]);
-        if (currentUser.role !== 'd' && currentUser.role !== 'doctor') {
-          throw new Error('Only a doctor can edit patient ICD-10 data or account activation.');
+        if (currentUser.role !== 'd' && currentUser.role !== 'doctor' && currentUser.role !== 'a' && currentUser.role !== 'admin') {
+          throw new Error('Only a doctor or administrator can edit patient ICD-10 data or account activation.');
         }
         if (profile.role !== 'p' && profile.role !== 'patient') {
           throw new Error('The scanned account is not a patient account.');
@@ -258,54 +287,21 @@ export default function PatientDataModifierScreen() {
     if (!activeSearch) return [];
     const term = activeSearch === 'code' ? codeSearch.trim() : nameSearch.trim();
     if (!term) return [];
-
-    const normalizedTerm =
-      activeSearch === 'code' ? normalizeIcdCode(term) : normalizeConditionName(term);
-    if (!normalizedTerm) return [];
-
-    return catalogue
-      .map((illness) => {
-        const value =
-          activeSearch === 'code'
-            ? normalizeIcdCode(illness.code)
-            : normalizeConditionName(illness.name);
-        const rank =
-          value === normalizedTerm
-            ? 0
-            : value.startsWith(normalizedTerm)
-              ? 1
-              : value.includes(normalizedTerm)
-                ? 2
-                : -1;
-        return { illness, rank };
-      })
-      .filter(({ rank }) => rank >= 0)
-      .sort(
-        (left, right) =>
-          left.rank - right.rank || left.illness.code.localeCompare(right.illness.code),
-      )
-      .slice(0, 12)
-      .map(({ illness }) => illness);
+    return findCatalogueMatches(catalogue, activeSearch, term).slice(0, 12);
   }, [activeSearch, catalogue, codeSearch, nameSearch]);
 
   const handleCodeSearch = (value: string) => {
     setActiveSearch('code');
     setCodeSearch(value);
-    const normalized = normalizeIcdCode(value);
-    const exactMatch = catalogue.find(
-      (illness) => normalizeIcdCode(illness.code) === normalized,
-    );
-    setNameSearch(exactMatch?.name || '');
+    const bestMatch = findCatalogueMatches(catalogue, 'code', value)[0];
+    setNameSearch(bestMatch?.name || '');
   };
 
   const handleNameSearch = (value: string) => {
     setActiveSearch('name');
     setNameSearch(value);
-    const normalized = normalizeConditionName(value);
-    const exactMatch = catalogue.find(
-      (illness) => normalizeConditionName(illness.name) === normalized,
-    );
-    setCodeSearch(exactMatch?.code || '');
+    const bestMatch = findCatalogueMatches(catalogue, 'name', value)[0];
+    setCodeSearch(bestMatch?.code || '');
   };
   const active = patient ? isAccountActive(patient) : false;
 
@@ -402,6 +398,10 @@ export default function PatientDataModifierScreen() {
         <TextInput value={displayedName} editable={false} style={styles.readonly} />
         <Text style={styles.label}>Phone number</Text>
         <TextInput value={patient.phoneNumber || 'Not provided'} editable={false} style={styles.readonly} />
+        <Text style={styles.label}>ID number</Text>
+        <TextInput value={patient.idNumber || 'Not provided'} editable={false} style={styles.readonly} />
+        <Text style={styles.label}>Home address</Text>
+        <TextInput value={patient.homeAddress || 'Not provided'} editable={false} style={styles.readonly} />
         <Text style={styles.body}>
           Previous code update: {params.lastUpdatedAt && !Number.isNaN(Date.parse(params.lastUpdatedAt))
             ? new Date(params.lastUpdatedAt).toLocaleString()

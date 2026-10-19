@@ -21,11 +21,13 @@ import {
 import { saveLocalIcd10Record } from '../../services/cache';
 import { parseQrPayload, type PatientQrPayload, type QrType } from '../../utils/qrPayload';
 
-type Role = 'patient' | 'doctor' | 'receptionist';
+type Role = 'patient' | 'doctor' | 'receptionist' | 'admin';
 type PatientProfile = Record<string, unknown> & {
   id: string;
   name?: string;
   phoneNumber?: string;
+  idNumber?: string;
+  homeAddress?: string;
   email?: string;
   role?: string;
   accountVerified?: boolean;
@@ -44,6 +46,7 @@ function normalizeRole(value?: string): Role | null {
   if (value === 'p' || value === 'patient') return 'patient';
   if (value === 'd' || value === 'doctor') return 'doctor';
   if (value === 'r' || value === 'receptionist') return 'receptionist';
+  if (value === 'a' || value === 'admin') return 'admin';
   return null;
 }
 
@@ -375,7 +378,7 @@ export default function QrScannerScreen() {
           return;
         }
 
-        if (role !== 'doctor' && role !== 'receptionist') {
+        if (role !== 'doctor' && role !== 'receptionist' && role !== 'admin') {
           throw new Error('Only clinic staff can scan a patient QR code.');
         }
         const {
@@ -506,6 +509,8 @@ export default function QrScannerScreen() {
             key !== 'phoneNumber' &&
             key !== 'email' &&
             key !== 'id' &&
+            key !== 'idNumber' &&
+            key !== 'homeAddress' &&
             !isSensitiveHealthField(key) &&
             value !== undefined &&
             value !== null &&
@@ -552,6 +557,8 @@ export default function QrScannerScreen() {
             <Text style={styles.detail}><Text style={styles.detailLabel}>User ID: </Text>{patient.id}</Text>
             <Text style={styles.detail}><Text style={styles.detailLabel}>Local ID: </Text>{payload.localId}</Text>
             <Text style={styles.detail}><Text style={styles.detailLabel}>Phone: </Text>{patient.phoneNumber || 'Not provided'}</Text>
+            <Text style={styles.detail}><Text style={styles.detailLabel}>ID number: </Text>{patient.idNumber || 'Not provided'}</Text>
+            <Text style={styles.detail}><Text style={styles.detailLabel}>Home address: </Text>{patient.homeAddress || 'Not provided'}</Text>
             <Text style={styles.detail}><Text style={styles.detailLabel}>Email: </Text>{patient.email || 'Not provided'}</Text>
             <Text style={styles.detail}>
               <Text style={styles.detailLabel}>Last ICD-10 update: </Text>
@@ -584,7 +591,7 @@ export default function QrScannerScreen() {
         </View>
       )}
 
-      {patient && payload && role === 'doctor' && (
+      {patient && payload && (role === 'doctor' || role === 'admin') && (
         <View style={styles.panel}>
           <View style={styles.nameRow}>
             <Text style={styles.panelTitle}>{patient.name || 'Patient'}</Text>
@@ -598,6 +605,8 @@ export default function QrScannerScreen() {
             )}
           </View>
           <Text style={styles.detail}>Phone: {patient.phoneNumber || 'Not provided'}</Text>
+          <Text style={styles.detail}>ID number: {patient.idNumber || 'Not provided'}</Text>
+          <Text style={styles.detail}>Home address: {patient.homeAddress || 'Not provided'}</Text>
           <Text style={styles.detail}>
             Last code update: {formatUpdateTime(payload.lastUpdatedAt)}
           </Text>
@@ -610,7 +619,7 @@ export default function QrScannerScreen() {
           {!!lastDoctorLookupError && (
             <Text style={styles.detail}>Doctor name lookup issue: {lastDoctorLookupError}</Text>
           )}
-          {appointment ? (
+          {role === 'doctor' && appointment ? (
             <>
               <Text style={styles.detail}>
                 Appointment: {appointment.status || 'unknown'} · {getAppointmentDate(appointment.appointmentDate)?.toLocaleString() || 'date unavailable'}
@@ -632,9 +641,9 @@ export default function QrScannerScreen() {
                 <Text style={styles.buttonText}>Mark appointment completed</Text>
               </Pressable>
             </>
-          ) : (
+          ) : role === 'doctor' ? (
             <Text style={styles.body}>No current appointment was found. You can still update the patient’s ICD-10 data.</Text>
-          )}
+          ) : null}
           <Pressable
             style={styles.button}
             onPress={() => openModifier(payload, appointment?.id)}

@@ -71,6 +71,7 @@ type Appointment = {
   tokenCode: string; // check-in token (the QR screen will use this)
   priorityLevel: number; // queue priority: LOWER number = seen sooner
   clinicName?: string;
+  doctorName?: string;
   checkInTime?: string;
   recurringSeriesId?: string;
   accountActive?: boolean;
@@ -80,6 +81,8 @@ type Patient = {
   id: string;
   name: string;
   phoneNumber?: string;
+  idNumber?: string;
+  homeAddress?: string;
   doctorId?: string;
   clinicId?: string;
   accountVerified?: boolean;
@@ -89,6 +92,7 @@ type Patient = {
 type Clinic = {
   id: string;
   name: string;
+  numbers?: string[];
   dailySlotCapacity?: number;
 };
 
@@ -117,7 +121,6 @@ const TIME_SLOTS = [
   '10:30', '11:00', '11:30', '13:00', '13:30',
 ];
 
-// Suggested days between chronic check-ups (the interval scheduler)
 const DEFAULT_INTERVAL_DAYS = 30;
 
 const STATUS_INFO: Record<Status, { label: string; color: keyof ThemePalette['colors'] }> = {
@@ -154,6 +157,15 @@ const addDays = (key: string, days: number) => {
   const d = fromKey(key);
   d.setDate(d.getDate() + days);
   return toKey(d);
+};
+
+const addMonths = (key: string, months: number) => {
+  const [year, month, day] = key.split('-').map(Number);
+  const targetMonth = month - 1 + months;
+  const targetYear = year + Math.floor(targetMonth / 12);
+  const normalizedMonth = targetMonth % 12;
+  const lastDay = new Date(targetYear, normalizedMonth + 1, 0).getDate();
+  return toKey(new Date(targetYear, normalizedMonth, Math.min(day, lastDay)));
 };
 
 const daysBetween = (from: string, to: string) =>
@@ -327,7 +339,7 @@ function MonthGrid({ year, month, selected, todayKey, byDate, onSelect, ui }: an
 }
 
 // One appointment in the list below the calendar
-function AppointmentCard({ appt, role, ui, position, hint, actions }: any) {
+function AppointmentCard({ appt, role, ui, position, hint, actions, clinicNumbers = [], doctorName }: any) {
   const status = STATUS_INFO[appt.status as Status];
   const info = { ...status, color: ui.c[status.color] };
   // Patients see the visit type. Staff see the patient's name.
@@ -352,6 +364,16 @@ function AppointmentCard({ appt, role, ui, position, hint, actions }: any) {
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={{ fontSize: ui.size, fontWeight: '600', color: ui.c.text }}>{title}</Text>
           <Text style={{ fontSize: ui.size - 3, color: ui.c.textSecondary, marginTop: 2 }}>{subtitle}</Text>
+          {role === 'patient' && clinicNumbers.length ? (
+            <Text style={{ fontSize: ui.size - 4, color: ui.c.textSecondary, marginTop: 2 }}>
+              Clinic phone: {clinicNumbers.join(', ')}
+            </Text>
+          ) : null}
+          {role === 'receptionist' ? (
+            <Text style={{ fontSize: ui.size - 4, color: ui.c.textSecondary, marginTop: 2 }}>
+              Doctor: {doctorName || appt.doctorName || 'Not assigned'}
+            </Text>
+          ) : null}
         </View>
         <View style={[styles.badge, { backgroundColor: info.color + '26' }]}>
           <Text style={{ fontSize: ui.size - 5, fontWeight: '700', color: info.color }}>{info.label}</Text>
@@ -505,7 +527,8 @@ function ScheduleModal({
   const [searchingName, setSearchingName] = useState(false);
   const [searchingPhone, setSearchingPhone] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [repeatDays, setRepeatDays] = useState(0);
+  const [repeatCount, setRepeatCount] = useState('3');
+  const [repeatEveryMonths, setRepeatEveryMonths] = useState('1');
 
   useEffect(() => {
     if (!visible || !nameSearch.trim()) {
@@ -581,7 +604,8 @@ function ScheduleModal({
   const close = () => {
     setSlot(null);
     setPatient(null);
-    setRepeatDays(0);
+    setRepeatCount('3');
+    setRepeatEveryMonths('1');
     setNameSearch('');
     setPhoneSearch('');
     setNameResults([]);
@@ -596,9 +620,29 @@ function ScheduleModal({
       return notify('Choose a doctor', 'Select the doctor who will be assigned to this appointment.');
     }
     if (!slot) return notify('Choose a time', 'Please pick a time slot.');
+    const visitCount = role === 'doctor' ? Number(repeatCount) : 1;
+    const intervalMonths = Number(repeatEveryMonths);
+    if (!Number.isInteger(visitCount) || visitCount < 1 || visitCount > 60) {
+      return notify('Invalid visit count', 'Enter a whole number of visits between 1 and 60.');
+    }
+    if (
+      role === 'doctor' &&
+      visitCount > 1 &&
+      (!Number.isInteger(intervalMonths) || intervalMonths < 1 || intervalMonths > 36)
+    ) {
+      return notify('Invalid visit gap', 'Enter a whole number of months between 1 and 36.');
+    }
     setSaving(true);
     try {
-      await onSave({ patient, clinicId, doctorId: assignedDoctorId, type, slot, repeatDays });
+      await onSave({
+        patient,
+        clinicId,
+        doctorId: assignedDoctorId,
+        type,
+        slot,
+        repeatCount: visitCount,
+        repeatEveryMonths: intervalMonths,
+      });
       close();
     } finally {
       setSaving(false);
@@ -658,6 +702,9 @@ function ScheduleModal({
           <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 2 }}>
             {result.phoneNumber || 'No phone number on profile'}
           </Text>
+          <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 3 }}>
+            ID: {result.idNumber || 'Not provided'} · Address: {result.homeAddress || 'Not provided'}
+          </Text>
         </Pressable>
       ))}
     </View>
@@ -688,6 +735,9 @@ function ScheduleModal({
                   )}
                 </View>
                 <Text style={{ color: ui.c.primarylight, fontSize: ui.size - 2 }}>Tap to change</Text>
+                <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 3 }}>
+                  ID: {patient.idNumber || 'Not provided'} · Address: {patient.homeAddress || 'Not provided'}
+                </Text>
               </Pressable>
             )}
             <TextInput
@@ -716,7 +766,7 @@ function ScheduleModal({
                 {clinics.map((clinic: Clinic) => (
                   <Chip
                     key={clinic.id}
-                    text={clinic.name}
+                    text={clinic.numbers?.length ? `${clinic.name} · ${clinic.numbers.join(', ')}` : clinic.name}
                     active={clinicId === clinic.id}
                     onPress={() => setClinicId(clinic.id)}
                     ui={ui}
@@ -767,13 +817,60 @@ function ScheduleModal({
 
             {role === 'doctor' && (
               <>
-                <Text style={sectionLabel}>REPEAT (RECURRING CHECK-UPS, 3 VISITS)</Text>
-                <View style={styles.chipWrap}>
-                  <Chip text="Once" active={repeatDays === 0} onPress={() => setRepeatDays(0)} ui={ui} />
-                  <Chip text="Every month" active={repeatDays === 30} onPress={() => setRepeatDays(30)} ui={ui} />
-                  <Chip text="Every 2 months" active={repeatDays === 60} onPress={() => setRepeatDays(60)} ui={ui} />
-                  <Chip text="Every 3 months" active={repeatDays === 90} onPress={() => setRepeatDays(90)} ui={ui} />
+                <Text style={sectionLabel}>REPEATING VISITS</Text>
+                <View style={styles.recurrenceFields}>
+                  <View style={styles.recurrenceField}>
+                    <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 2, marginBottom: 6 }}>
+                      Number of visits (1–60)
+                    </Text>
+                    <TextInput
+                      value={repeatCount}
+                      onChangeText={setRepeatCount}
+                      keyboardType="number-pad"
+                      placeholder="3"
+                      accessibilityLabel="Number of visits"
+                      style={[
+                        styles.input,
+                        styles.recurrenceInput,
+                        {
+                          backgroundColor: ui.c.backgroundElement,
+                          borderColor: ui.c.secondaryBorder,
+                          color: ui.c.text,
+                          fontSize: ui.size,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.recurrenceField}>
+                    <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 2, marginBottom: 6 }}>
+                      Gap in months (1–36)
+                    </Text>
+                    <TextInput
+                      value={repeatEveryMonths}
+                      onChangeText={setRepeatEveryMonths}
+                      keyboardType="number-pad"
+                      placeholder="1"
+                      accessibilityLabel="Gap between visits in months"
+                      editable={Number(repeatCount) > 1}
+                      style={[
+                        styles.input,
+                        styles.recurrenceInput,
+                        {
+                          backgroundColor: ui.c.backgroundElement,
+                          borderColor: ui.c.secondaryBorder,
+                          color: ui.c.text,
+                          fontSize: ui.size,
+                          opacity: Number(repeatCount) > 1 ? 1 : 0.5,
+                        },
+                      ]}
+                    />
+                  </View>
                 </View>
+                <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 2, marginTop: 4 }}>
+                  {Number(repeatCount) === 1
+                    ? 'This creates one visit.'
+                    : `Creates ${repeatCount || '…'} visits, ${repeatEveryMonths || '…'} month(s) apart.`}
+                </Text>
               </>
             )}
 
@@ -847,7 +944,7 @@ export default function CalendarScreen() {
 
           const [rawPatients, rawClinics, rawDoctors] = await Promise.all([
             resolvedRole === 'patient' ? Promise.resolve([]) : getClinicPatients(),
-            resolvedRole === 'patient' ? Promise.resolve([]) : getClinics(),
+            getClinics(),
             resolvedRole === 'receptionist' ? getClinicDoctors() : Promise.resolve([]),
           ]);
           const clinicId = profile.clinicId || '';
@@ -1022,18 +1119,22 @@ export default function CalendarScreen() {
     doctorId: string;
     type: AppointmentType;
     slot: string;
-    repeatDays: number;
+    repeatCount: number;
+    repeatEveryMonths: number;
   }) => {
     const clinic = clinics.find((item) => item.id === data.clinicId);
     if (!clinic) return notify('Choose a clinic', 'Select a valid clinic before booking.');
-    const count = role === 'doctor' && data.repeatDays > 0 ? 3 : 1;
+    const count = role === 'doctor' ? data.repeatCount : 1;
     const recurringSeriesId = count > 1 ? `series-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : undefined;
     let updatedAppointments = [...appointments];
     let created = 0;
     let skipped = 0;
 
     for (let i = 0; i < count; i++) {
-      const dateKey = addDays(selected, i * data.repeatDays);
+      const dateKey =
+        count > 1
+          ? addMonths(selected, i * data.repeatEveryMonths)
+          : selected;
       const alreadyBooked = updatedAppointments.some(
         (appointment) =>
           appointment.patientId === data.patient.id &&
@@ -1071,6 +1172,7 @@ export default function CalendarScreen() {
           id: result.appointmentId,
           patientId: data.patient.id,
           patientName: data.patient.name,
+          clinicName: clinic.name,
           doctorId: role === 'doctor' ? currentUserId : data.doctorId,
           clinicId: clinic.id,
           date: dateKey,
@@ -1479,6 +1581,8 @@ export default function CalendarScreen() {
                   appt={appt}
                   role={role}
                   ui={ui}
+                  clinicNumbers={clinics.find((clinic) => clinic.id === appt.clinicId)?.numbers || []}
+                  doctorName={doctors.find((doctor) => doctor.id === appt.doctorId)?.name}
                   position={section.numbered ? index + 1 : undefined}
                   hint={hintFor(appt)}
                   actions={actionsFor(appt)}
@@ -1554,6 +1658,9 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: Spacing.two },
   input: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 },
   searchInput: { marginTop: Spacing.one, borderWidth: 1 },
+  recurrenceFields: { flexDirection: 'row', gap: Spacing.two },
+  recurrenceField: { flex: 1 },
+  recurrenceInput: { minHeight: 46, borderWidth: 1 },
   selectedPatient: { padding: Spacing.two, borderRadius: 10, marginBottom: Spacing.two },
   searchResults: { gap: Spacing.one, marginTop: Spacing.one, marginBottom: Spacing.two },
   searchResult: { padding: Spacing.two, borderRadius: 10 },
