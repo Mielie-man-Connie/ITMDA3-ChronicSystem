@@ -4,7 +4,6 @@ import { useColorScheme, StyleSheet } from 'react-native';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
-
 import { Spacing } from '@/constants/theme';
 
 export function WebBadge() {
