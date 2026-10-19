@@ -11,6 +11,7 @@
 //
 // WHAT LIVES HERE (and why it does NOT go to Firebase):
 //   - Appointment tokens — cached at booking time so the QR screen works offline
+//   - Account-scoped appointment schedules and the clinic directory for offline viewing
 //   - ICD-10 codes and update metadata — stored by patient ID on this device
 //     and shared with clinic staff only through QR codes
 //
@@ -29,6 +30,175 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Defined once here so a typo in one place does not silently create a second key.
 const CACHED_APPOINTMENTS_KEY = 'kwezi_cached_appointments';
 const HEALTH_DATA_KEY = 'kwezi_health_data';
+const SCHEDULE_CACHE_PREFIX = 'kwezi_cached_schedule:';
+const CLINICS_CACHE_KEY = 'kwezi_cached_clinics';
+const PROFILE_CACHE_PREFIX = 'kwezi_cached_profile:';
+const CLINIC_USERS_CACHE_PREFIX = 'kwezi_cached_clinic_users:';
+
+type CachedScheduleAppointment = {
+  id: string;
+  appointmentDate?: unknown;
+  [key: string]: unknown;
+};
+
+type CachedRecord = {
+  id: string;
+  [key: string]: unknown;
+};
+
+type ClinicUserList = 'patients' | 'doctors';
+
+async function readCachedRecordList(key: string): Promise<CachedRecord[] | null> {
+  const stored = await AsyncStorage.getItem(key);
+  if (stored === null) return null;
+  const parsed: unknown = JSON.parse(stored);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every(
+      (record) =>
+        typeof record === 'object' &&
+        record !== null &&
+        typeof record.id === 'string',
+    )
+  ) {
+    throw new Error('The saved record list has an invalid format.');
+  }
+  return parsed as CachedRecord[];
+}
+
+function normalizeAppointmentForStorage(
+  appointment: CachedScheduleAppointment,
+): CachedScheduleAppointment {
+  const value = appointment.appointmentDate;
+  const date =
+    value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function'
+      ? value.toDate()
+      : value;
+  return {
+    ...appointment,
+    ...(date instanceof Date ? { appointmentDate: date.toISOString() } : {}),
+  };
+}
+
+/** Saves an account-scoped appointment list for offline schedule viewing. */
+export async function saveCachedSchedule(
+  cacheId: string,
+  appointments: CachedScheduleAppointment[],
+) {
+  if (!cacheId.trim() || !Array.isArray(appointments)) {
+    throw new Error('A cache ID and appointment list are required.');
+  }
+  await AsyncStorage.setItem(
+    `${SCHEDULE_CACHE_PREFIX}${cacheId}`,
+    JSON.stringify(appointments.map(normalizeAppointmentForStorage)),
+  );
+}
+
+/** Returns a saved appointment list, or null if this account has no saved copy. */
+export async function getCachedSchedule(
+  cacheId: string,
+): Promise<CachedScheduleAppointment[] | null> {
+  if (!cacheId.trim()) throw new Error('A cache ID is required.');
+  const stored = await AsyncStorage.getItem(`${SCHEDULE_CACHE_PREFIX}${cacheId}`);
+  if (stored === null) return null;
+  const parsed: unknown = JSON.parse(stored);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every(
+      (appointment) =>
+        typeof appointment === 'object' &&
+        appointment !== null &&
+        typeof appointment.id === 'string',
+    )
+  ) {
+    throw new Error('The saved appointment list has an invalid format.');
+  }
+  return parsed as CachedScheduleAppointment[];
+}
+
+/** Removes saved schedules for all accounts on this device. */
+export async function clearCachedSchedules() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const scheduleKeys = keys.filter((key) => key.startsWith(SCHEDULE_CACHE_PREFIX));
+    if (scheduleKeys.length > 0) await AsyncStorage.multiRemove(scheduleKeys);
+  } catch (error) {
+    console.error('[Cache] clearCachedSchedules failed:', error);
+  }
+}
+
+/** Removes saved profiles and staff rosters from this device. */
+export async function clearCachedProfilesAndClinicUsers() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const profileKeys = keys.filter(
+      (key) =>
+        key.startsWith(PROFILE_CACHE_PREFIX) ||
+        key.startsWith(CLINIC_USERS_CACHE_PREFIX),
+    );
+    if (profileKeys.length > 0) await AsyncStorage.multiRemove(profileKeys);
+  } catch (error) {
+    console.error('[Cache] clearCachedProfilesAndClinicUsers failed:', error);
+  }
+}
+
+/** Saves the clinic directory, including the clinic phone numbers. */
+export async function saveCachedClinics(clinics: Record<string, unknown>[]) {
+  if (!Array.isArray(clinics)) throw new Error('A clinic list is required.');
+  await AsyncStorage.setItem(CLINICS_CACHE_KEY, JSON.stringify(clinics));
+}
+
+/** Returns the saved clinic directory, or null if no copy has been saved. */
+export async function getCachedClinics(): Promise<Record<string, unknown>[] | null> {
+  return readCachedRecordList(CLINICS_CACHE_KEY);
+}
+
+/** Saves the signed-in user's profile for offline app startup. */
+export async function saveCachedProfile(profile: CachedRecord) {
+  if (!profile.id) throw new Error('A profile ID is required.');
+  await AsyncStorage.setItem(`${PROFILE_CACHE_PREFIX}${profile.id}`, JSON.stringify(profile));
+}
+
+/** Returns the signed-in user's saved profile, or null if it has not been cached. */
+export async function getCachedProfile(userId: string): Promise<CachedRecord | null> {
+  if (!userId.trim()) throw new Error('A user ID is required.');
+  const stored = await AsyncStorage.getItem(`${PROFILE_CACHE_PREFIX}${userId}`);
+  if (stored === null) return null;
+  const parsed: unknown = JSON.parse(stored);
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('id' in parsed) ||
+    parsed.id !== userId
+  ) {
+    throw new Error('The saved profile has an invalid format.');
+  }
+  return parsed as CachedRecord;
+}
+
+/** Saves a staff-only patient or doctor list for offline schedule display. */
+export async function saveCachedClinicUsers(
+  userId: string,
+  list: ClinicUserList,
+  users: CachedRecord[],
+) {
+  if (!userId.trim() || !Array.isArray(users)) {
+    throw new Error('A user ID and clinic user list are required.');
+  }
+  await AsyncStorage.setItem(
+    `${CLINIC_USERS_CACHE_PREFIX}${list}:${userId}`,
+    JSON.stringify(users),
+  );
+}
+
+/** Returns the saved patient or doctor list for this signed-in staff member. */
+export async function getCachedClinicUsers(
+  userId: string,
+  list: ClinicUserList,
+): Promise<CachedRecord[] | null> {
+  if (!userId.trim()) throw new Error('A user ID is required.');
+  return readCachedRecordList(`${CLINIC_USERS_CACHE_PREFIX}${list}:${userId}`);
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -395,7 +565,7 @@ export async function getLocalIcd10Record(patientId: string): Promise<LocalIcd10
 }
 
 /** clearAllLocalData
- * Convenience function — clears both appointments and health data in one call.
+ * Clears cached appointments, schedules, profiles, staff lists, and health data.
  *
  * Call this on logout to fully reset the local state for the next user.
  *
@@ -406,6 +576,8 @@ export async function getLocalIcd10Record(patientId: string): Promise<LocalIcd10
 export async function clearAllLocalData() {
   await Promise.all([
     clearCachedAppointments(),
+    clearCachedSchedules(),
+    clearCachedProfilesAndClinicUsers(),
     clearLocalHealthData(),
   ]);
 }

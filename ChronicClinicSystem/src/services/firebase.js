@@ -36,6 +36,7 @@ import {
   query,
   where,
   getDocs,
+  getDocsFromServer,
   orderBy,
   onSnapshot,
   writeBatch,
@@ -48,7 +49,39 @@ import { auth, db } from '../config/firebaseConfig';
 // cache.js handles all AsyncStorage (offline/local storage) operations.
 // bookAppointment imports cacheAppointment from here to store the token
 // locally after writing it to Firestore.
-import { cacheAppointment } from './cache';
+import {
+  cacheAppointment,
+  getCachedClinicUsers,
+  getCachedClinics,
+  getCachedProfile,
+  getCachedSchedule,
+  saveCachedClinicUsers,
+  saveCachedClinics,
+  saveCachedProfile,
+  saveCachedSchedule,
+} from './cache';
+
+async function fetchWithLocalCache(fetchRemote, readCache, writeCache, label) {
+  let value;
+  try {
+    value = await fetchRemote();
+  } catch (remoteError) {
+    try {
+      const cachedValue = await readCache();
+      if (cachedValue !== null) return cachedValue;
+    } catch (cacheError) {
+      console.warn(`[${label}] Could not read local cache:`, cacheError);
+    }
+    throw remoteError;
+  }
+
+  try {
+    await writeCache(value);
+  } catch (cacheError) {
+    console.warn(`[${label}] Could not save local cache:`, cacheError);
+  }
+  return value;
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -262,7 +295,12 @@ export async function setPatientAccountActivation(uid, active) {
 export async function getCurrentUserProfile() {
   const user = auth.currentUser;
   if (!user) throw new Error('No user is signed in.');
-  return getUserById(user.uid);
+  return fetchWithLocalCache(
+    () => getUserById(user.uid),
+    () => getCachedProfile(user.uid),
+    (profile) => saveCachedProfile(profile),
+    'getCurrentUserProfile',
+  );
 }
 
 /** updateUserProfile
@@ -519,12 +557,18 @@ export async function getPatientAppointments(patientId) {
     where('patientId', '==', patientId),
     orderBy('createdAt', 'desc')
   );
-  const querySnapshot = await getDocs(q);
-  const appointments = [];
-  querySnapshot.forEach((document) => {
-    appointments.push({ id: document.id, ...document.data() });
-  });
-  return appointments;
+  return fetchWithLocalCache(
+    async () => {
+      const querySnapshot = await getDocsFromServer(q);
+      return querySnapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      }));
+    },
+    () => getCachedSchedule(patientId),
+    (appointments) => saveCachedSchedule(patientId, appointments),
+    'getPatientAppointments',
+  );
 }
 
 /** Fetches this patient's upcoming booked appointments with their unused tokens. */
@@ -659,12 +703,17 @@ export async function updateAppointmentSeries(seriesId, updatedFields) {
 
 /** Subscribes to live appointment changes. Pass a patient ID to scope the feed. */
 export function subscribeToAppointments(onUpdate, onError, patientId) {
+  const cacheId = patientId || auth.currentUser?.uid;
+  let serverSnapshotReceived = false;
   const appointmentsQuery = patientId
     ? query(collection(db, 'appointments'), where('patientId', '==', patientId))
     : collection(db, 'appointments');
-  return onSnapshot(
+  const unsubscribe = onSnapshot(
     appointmentsQuery,
+    { includeMetadataChanges: true },
     (snapshot) => {
+      if (snapshot.metadata.fromCache) return;
+      serverSnapshotReceived = true;
       const appointments = snapshot.docs
         .map((document) => ({ id: document.id, ...document.data() }))
         .sort((a, b) => {
@@ -677,9 +726,38 @@ export function subscribeToAppointments(onUpdate, onError, patientId) {
           return aDate - bDate;
         });
       onUpdate(appointments);
+      if (cacheId) {
+        void saveCachedSchedule(cacheId, appointments).catch((cacheError) => {
+          console.warn('[subscribeToAppointments] Could not save local schedule:', cacheError);
+        });
+      }
     },
-    onError
+    (firestoreError) => {
+      if (!cacheId) {
+        onError(firestoreError);
+        return;
+      }
+      void getCachedSchedule(cacheId)
+        .then((appointments) => {
+          if (appointments !== null) onUpdate(appointments);
+          else onError(firestoreError);
+        })
+        .catch((cacheError) => {
+          console.warn('[subscribeToAppointments] Could not read local schedule:', cacheError);
+          onError(firestoreError);
+        });
+    }
   );
+  if (cacheId) {
+    void getCachedSchedule(cacheId)
+      .then((appointments) => {
+        if (appointments !== null && !serverSnapshotReceived) onUpdate(appointments);
+      })
+      .catch((cacheError) => {
+        console.warn('[subscribeToAppointments] Could not read local schedule:', cacheError);
+      });
+  }
+  return unsubscribe;
 }
 
 /** getAllAppointments
@@ -691,18 +769,27 @@ export function subscribeToAppointments(onUpdate, onError, patientId) {
  * @returns {Array} All appointment objects sorted by appointmentDate
  */
 export async function getAllAppointments() {
-  const snapshot = await getDocs(collection(db, 'appointments'));
-  return snapshot.docs
-    .map((document) => ({ id: document.id, ...document.data() }))
-    .sort((a, b) => {
-      const aDate = a.appointmentDate?.toDate
-        ? a.appointmentDate.toDate().getTime()
-        : new Date(a.appointmentDate || 0).getTime();
-      const bDate = b.appointmentDate?.toDate
-        ? b.appointmentDate.toDate().getTime()
-        : new Date(b.appointmentDate || 0).getTime();
-      return aDate - bDate;
-    });
+  const cacheId = auth.currentUser?.uid;
+  return fetchWithLocalCache(
+    async () => {
+      const snapshot = await getDocsFromServer(collection(db, 'appointments'));
+      return snapshot.docs
+        .map((document) => ({ id: document.id, ...document.data() }))
+        .sort((a, b) => {
+        const aDate = a.appointmentDate?.toDate
+          ? a.appointmentDate.toDate().getTime()
+          : new Date(a.appointmentDate || 0).getTime();
+        const bDate = b.appointmentDate?.toDate
+          ? b.appointmentDate.toDate().getTime()
+          : new Date(b.appointmentDate || 0).getTime();
+        return aDate - bDate;
+        });
+    },
+    () => (cacheId ? getCachedSchedule(cacheId) : Promise.resolve(null)),
+    (appointments) =>
+      cacheId ? saveCachedSchedule(cacheId, appointments) : Promise.resolve(),
+    'getAllAppointments',
+  );
 }
 
 /** getAppointmentsForDate
@@ -967,19 +1054,53 @@ export async function getClinicPatients() {
     collection(db, 'users'),
     where('role', '==', 'p')
   );
-  const querySnapshot = await getDocs(q);
-  const patients = [];
-  querySnapshot.forEach((document) => {
-    patients.push({ id: document.id, ...document.data() });
-  });
-  return patients;
+  const cacheId = auth.currentUser?.uid;
+  return fetchWithLocalCache(
+    async () => {
+      const querySnapshot = await getDocsFromServer(q);
+      return querySnapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      }));
+    },
+    () => (cacheId ? getCachedClinicUsers(cacheId, 'patients') : Promise.resolve(null)),
+    (patients) =>
+      cacheId
+        ? saveCachedClinicUsers(
+            cacheId,
+            'patients',
+            patients.map(({ id, name, accountVerified, accountStatus }) => ({
+              id,
+              name,
+              accountVerified,
+              accountStatus,
+            })),
+          )
+        : Promise.resolve(),
+    'getClinicPatients',
+  );
 }
 
 /** @returns {Promise<Array<{id: string, name?: string, clinicId?: string, role?: string}>>} */
 export async function getClinicDoctors() {
   const q = query(collection(db, 'users'), where('role', 'in', ['d', 'doctor']));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((doctorDoc) => ({ id: doctorDoc.id, ...doctorDoc.data() }));
+  const cacheId = auth.currentUser?.uid;
+  return fetchWithLocalCache(
+    async () => {
+      const snapshot = await getDocsFromServer(q);
+      return snapshot.docs.map((doctorDoc) => ({ id: doctorDoc.id, ...doctorDoc.data() }));
+    },
+    () => (cacheId ? getCachedClinicUsers(cacheId, 'doctors') : Promise.resolve(null)),
+    (doctors) =>
+      cacheId
+        ? saveCachedClinicUsers(
+            cacheId,
+            'doctors',
+            doctors.map(({ id, name }) => ({ id, name })),
+          )
+        : Promise.resolve(),
+    'getClinicDoctors',
+  );
 }
 
 function normalizeClinicNumbers(value) {
@@ -999,18 +1120,25 @@ function normalizeClinicNumbers(value) {
 
 /** @returns {Promise<Array<{id: string, name?: string, numbers: string[], dailySlotCapacity?: number}>>} */
 export async function getClinics() {
-  const snapshot = await getDocs(collection(db, 'clinics'));
-  return snapshot.docs.map((clinicDoc) => {
-    const data = clinicDoc.data();
-    const numbers = normalizeClinicNumbers(
-      data.numbers ?? data.number ?? data.phoneNumber ?? data.phone ?? data.contactNumber,
-    );
-    return {
-      id: clinicDoc.id,
-      ...data,
-      numbers,
-    };
-  });
+  return fetchWithLocalCache(
+    async () => {
+      const snapshot = await getDocsFromServer(collection(db, 'clinics'));
+      return snapshot.docs.map((clinicDoc) => {
+        const data = clinicDoc.data();
+        const numbers = normalizeClinicNumbers(
+          data.numbers ?? data.number ?? data.phoneNumber ?? data.phone ?? data.contactNumber,
+        );
+        return {
+          id: clinicDoc.id,
+          ...data,
+          numbers,
+        };
+      });
+    },
+    getCachedClinics,
+    saveCachedClinics,
+    'getClinics',
+  );
 }
 
 /** searchUsersByName
