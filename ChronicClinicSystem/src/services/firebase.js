@@ -702,7 +702,7 @@ export async function updateAppointmentSeries(seriesId, updatedFields) {
 }
 
 /** Subscribes to live appointment changes. Pass a patient ID to scope the feed. */
-export function subscribeToAppointments(onUpdate, onError, patientId) {
+export function subscribeToAppointments(onUpdate, onError, patientId, onServerUpdate) {
   const cacheId = patientId || auth.currentUser?.uid;
   let serverSnapshotReceived = false;
   const appointmentsQuery = patientId
@@ -714,6 +714,7 @@ export function subscribeToAppointments(onUpdate, onError, patientId) {
     (snapshot) => {
       if (snapshot.metadata.fromCache) return;
       serverSnapshotReceived = true;
+      onServerUpdate?.(new Date());
       const appointments = snapshot.docs
         .map((document) => ({ id: document.id, ...document.data() }))
         .sort((a, b) => {
@@ -758,6 +759,39 @@ export function subscribeToAppointments(onUpdate, onError, patientId) {
       });
   }
   return unsubscribe;
+}
+
+/** Subscribes administrators to user profiles with pending account-deletion requests. */
+export function subscribeToAccountDeletionRequests(onUpdate, onError) {
+  let unsubscribe;
+  let cancelled = false;
+
+  void requireAdminProfile()
+    .then(() => {
+      if (cancelled) return;
+      unsubscribe = onSnapshot(
+        query(collection(db, 'users'), where('accountDeletionRequestedAt', '!=', null)),
+        { includeMetadataChanges: true },
+        (snapshot) => {
+          if (snapshot.metadata.fromCache) return;
+          const requests = snapshot.docs
+            .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
+            .filter((user) => typeof user.accountDeletionRequestedAt === 'string')
+            .map((user) => ({
+              id: user.id,
+              accountDeletionRequestedAt: user.accountDeletionRequestedAt,
+            }));
+          onUpdate(requests);
+        },
+        onError,
+      );
+    })
+    .catch(onError);
+
+  return () => {
+    cancelled = true;
+    unsubscribe?.();
+  };
 }
 
 /** getAllAppointments
@@ -1194,7 +1228,7 @@ export async function searchUsersByPhoneNumber(searchText) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 6 — CLINIC AND ADMIN MANAGEMENT
-// Functions for creating clinics and notifications.
+// Functions for creating clinics.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** createClinic
@@ -1224,26 +1258,6 @@ export async function createClinic({ address, dailySlotCapacity, name, numbers =
   return reference.id;
 }
 
-/** createNotification
- * Creates a notification document for a patient.
- * New notifications start with deliveryStatus 'pending'.
- *
- * @param {{ deliveryStatus?: string, message: string, patientId: string }}
- * @returns {string} The new Firestore document ID
- */
-export async function createNotification({ deliveryStatus = 'pending', message, patientId }) {
-  if (!message?.trim() || !patientId?.trim() || !deliveryStatus?.trim()) {
-    throw new Error('Delivery status, message, and patient ID are required.');
-  }
-  const reference = await addDoc(collection(db, 'notifications'), {
-    deliveryStatus: deliveryStatus.trim(),
-    message: message.trim(),
-    patientId: patientId.trim(),
-  });
-  return reference.id;
-}
-
-
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 7 — DEVELOPMENT AND ADMIN UTILITIES
 // Used by the fbtest screen. Not needed in production screens.
@@ -1258,7 +1272,7 @@ export async function createNotification({ deliveryStatus = 'pending', message, 
  */
 export async function getFirestoreCollections() {
   await requireAdminProfile();
-  const names = ['appointments', 'chronic-illnesses', 'clinics', 'notifications', 'queue', 'tokens', 'users'];
+  const names = ['appointments', 'chronic-illnesses', 'clinics', 'queue', 'tokens', 'users'];
   return Promise.all(
     names.map(async (name) => {
       try {
@@ -1285,7 +1299,6 @@ const ADMIN_MANAGED_COLLECTIONS = new Set([
   'appointments',
   'chronic-illnesses',
   'clinics',
-  'notifications',
   'queue',
   'tokens',
   'users',
@@ -1296,7 +1309,7 @@ async function requireAdminProfile() {
   if (!user) throw new Error('Sign in with an administrator account to manage database data.');
   const profile = await getDoc(doc(db, 'users', user.uid));
   const role = profile.exists() ? profile.data().role : undefined;
-  if (role !== 'a') {
+  if (role !== 'a' && role !== 'admin') {
     throw new Error('Administrator access is required for database management.');
   }
 }

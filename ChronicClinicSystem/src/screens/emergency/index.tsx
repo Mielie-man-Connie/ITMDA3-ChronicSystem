@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/components/theme-provider';
 import { getClinics } from '../../services/firebase';
@@ -79,7 +80,7 @@ export default function EmergencyScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView edges={['top']} style={styles.screen}>
       <Stack.Screen options={{ title: 'Clinic contacts', headerShown: false }} />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
@@ -195,14 +196,14 @@ export default function EmergencyScreen() {
           </>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: theme.colors.background },
-    content: { width: '100%', maxWidth: 720, alignSelf: 'center', padding: 20, paddingBottom: 40 },
+    content: { width: '100%', maxWidth: 720, alignSelf: 'center', padding: 20, paddingTop: 8, paddingBottom: 40 },
     header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
     headerText: { flex: 1 },
     title: { color: theme.colors.text, fontSize: theme.fontSizes.heading, fontWeight: '800' },

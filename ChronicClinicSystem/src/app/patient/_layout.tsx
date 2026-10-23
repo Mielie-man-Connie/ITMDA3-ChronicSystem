@@ -50,6 +50,8 @@ export default function PatientTabs() {
         name="qr"
         options={{
           title: 'QR code',
+          headerShown: false,
+          header: () => null,
           tabBarIcon: ({ color, size }) => <Ionicons name="qr-code" size={size + 2} color={color} />,
         }}
       />

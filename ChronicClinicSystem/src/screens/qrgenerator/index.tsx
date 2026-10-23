@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Stack, useFocusEffect } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import QRCode from 'react-native-qrcode-svg';
 import { useAppTheme } from '@/components/theme-provider';
 import { auth } from '../../config/firebaseConfig';
@@ -10,7 +12,24 @@ import { buildPatientRecordPayload } from '../../utils/qrPayload';
 function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
-    content: { padding: 16, paddingBottom: 32, flexGrow: 1 },
+    content: { paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 },
+    homeAction: {
+      minHeight: 52,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.backgroundElement,
+      borderRadius: 12,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 16,
+      gap: 8,
+    },
+    homeActionText: {
+      color: theme.colors.text,
+      fontSize: theme.fontSizes.body,
+      fontWeight: '600',
+    },
     center: {
       flex: 1,
       padding: 24,
@@ -66,6 +85,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
 }
 
 export default function QrGeneratorScreen() {
+  const router = useRouter();
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [loading, setLoading] = useState(true);
@@ -118,18 +138,34 @@ export default function QrGeneratorScreen() {
     );
   };
 
+  const homeAction = (
+    <Pressable
+      onPress={() => router.push('/')}
+      accessibilityRole="button"
+      accessibilityLabel="Home"
+      style={styles.homeAction}
+    >
+      <Ionicons name="home" size={20} color={theme.colors.text} />
+      <Text style={styles.homeActionText}>Home</Text>
+    </Pressable>
+  );
+
   if (loading) {
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: 'Patient QR code', headerShown: true }} />
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      <SafeAreaView edges={['top']} style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={[styles.center, { flex: 1 }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+        {homeAction}
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Stack.Screen options={{ title: 'Patient QR code', headerShown: true }} />
+    <SafeAreaView edges={['top']} style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {!!error && <Text style={styles.error}>{error}</Text>}
       {!error && record && (
         <View style={styles.card}>
@@ -158,6 +194,8 @@ export default function QrGeneratorScreen() {
           )}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+      {homeAction}
+    </SafeAreaView>
   );
 }

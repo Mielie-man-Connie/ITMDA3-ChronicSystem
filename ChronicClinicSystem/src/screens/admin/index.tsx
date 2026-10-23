@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Button, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   bookAppointment,
   createClinic,
-  createNotification,
   deleteAdminFirestoreDocument,
   getAllAppointments,
   getAdminFirestoreCollections,
@@ -17,6 +17,8 @@ import {
   updateAdminUserProfile,
 } from '../../services/firebase';
 import { useAppTheme } from '@/components/theme-provider';
+import { scheduleTestNotification } from '../../services/notifications';
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
 
 type UserRecord = {
   [key: string]: unknown;
@@ -76,7 +78,6 @@ const ADMIN_COLLECTIONS = [
   'appointments',
   'chronic-illnesses',
   'clinics',
-  'notifications',
   'queue',
   'tokens',
   'users',
@@ -85,6 +86,7 @@ const ADMIN_COLLECTIONS = [
 type AppointmentCalendarProps = {
   title: string;
   appointments: Appointment[];
+  lastUpdated: Date | null;
 };
 
 const dateKey = (date: Date) => {
@@ -103,7 +105,7 @@ function appointmentDateKey(appointment: Appointment) {
   return Number.isNaN(date.getTime()) ? '' : dateKey(date);
 }
 
-function AppointmentCalendar({ title, appointments }: AppointmentCalendarProps) {
+function AppointmentCalendar({ title, appointments, lastUpdated }: AppointmentCalendarProps) {
   const styles = useScreenStyles();
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -137,6 +139,9 @@ function AppointmentCalendar({ title, appointments }: AppointmentCalendarProps) 
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{title}</Text>
+      <Text style={styles.muted}>
+        Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Not refreshed yet'}
+      </Text>
       <View style={styles.monthHeading}>
         <TouchableOpacity
           accessibilityRole="button"
@@ -278,9 +283,6 @@ export default function AdminConsoleScreen() {
   const [clinicName, setClinicName] = useState('');
   const [clinicNumbers, setClinicNumbers] = useState('');
   const [clinicProvince, setClinicProvince] = useState('');
-  const [notificationPatientId, setNotificationPatientId] = useState('');
-  const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationStatus, setNotificationStatus] = useState('pending');
   const [appointmentClinicId, setAppointmentClinicId] = useState('');
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentTime, setAppointmentTime] = useState('');
@@ -295,6 +297,7 @@ export default function AdminConsoleScreen() {
   const [deleteTarget, setDeleteTarget] = useState<{ collection: string; id: string } | null>(null);
   const [loadingCollections, setLoadingCollections] = useState(false);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
+  const [appointmentsLastUpdated, setAppointmentsLastUpdated] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
@@ -375,6 +378,7 @@ export default function AdminConsoleScreen() {
     try {
       const all = await getAllAppointments();
       setAppointments(all);
+      setAppointmentsLastUpdated(new Date());
       void refreshDatabaseContents();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -455,6 +459,7 @@ export default function AdminConsoleScreen() {
     : [];
 
   return (
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.background }}>
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Text style={[styles.pageTitle, { flex: 1, marginBottom: 0 }]}>Admin console</Text>
@@ -510,6 +515,24 @@ export default function AdminConsoleScreen() {
           {message}
         </Text>
       ) : null}
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Test local notifications</Text>
+        <Text style={styles.muted}>
+          Sends an example notification to this device only. It does not create a Firestore record or notify other users.
+        </Text>
+        <Button
+          title={busy ? 'Please wait...' : 'Send test notification'}
+          disabled={busy}
+          onPress={() => void runAction(async () => {
+            if (signedInUser?.role !== 'a' && signedInUser?.role !== 'admin') {
+              throw new Error('Administrator access is required to send a test notification.');
+            }
+            await scheduleTestNotification();
+            return 'Test notification scheduled on this device.';
+          })}
+        />
+      </View>
 
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>Database contents</Text>
@@ -627,9 +650,7 @@ export default function AdminConsoleScreen() {
               <Text style={styles.muted}>
                 Signed in as {signedInUser.name || signedInUser.email || signedInUser.id}
               </Text>
-              {isAccountActive(signedInUser) && (
-                <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
-              )}
+              <AccountVerificationIcon verified={isAccountActive(signedInUser)} size={17} />
             </View>
             <Button
               title="Sign out"
@@ -689,15 +710,12 @@ export default function AdminConsoleScreen() {
                   setProfileClinicId(user.clinicId || '');
                   setProfileAccountActive(isAccountActive(user));
                   setProfileAdditionalJson(stringifyAdditionalUserFields(user));
-                  setNotificationPatientId(user.id);
                   setSearchText('');
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={styles.userName}>{user.name || 'Unnamed user'}</Text>
-                  {isAccountActive(user) && (
-                    <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
-                  )}
+                  <AccountVerificationIcon verified={isAccountActive(user)} size={17} />
                 </View>
                 <Text style={styles.muted}>{user.phoneNumber || user.email || user.id}</Text>
               </TouchableOpacity>
@@ -708,9 +726,7 @@ export default function AdminConsoleScreen() {
           <View style={styles.editPanel}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.listTitle}>User details: {selectedUser.name || selectedUser.id}</Text>
-              {isAccountActive(selectedUser) && (
-                <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
-              )}
+              <AccountVerificationIcon verified={isAccountActive(selectedUser)} size={17} />
             </View>
             <Field label="Name" value={profileName} onChange={setProfileName} />
             <Field label="Phone number" value={profilePhone} onChange={setProfilePhone} keyboardType="phone-pad" />
@@ -792,26 +808,6 @@ export default function AdminConsoleScreen() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Send a notification</Text>
-        <Field
-          label="Patient ID"
-          value={notificationPatientId}
-          onChange={setNotificationPatientId}
-          placeholder={selectedUser?.id}
-        />
-        <Field label="Message" value={notificationMessage} onChange={setNotificationMessage} multiline />
-        <Field label="Delivery status" value={notificationStatus} onChange={setNotificationStatus} />
-        <Button title="Save notification" disabled={busy} onPress={() => void runAction(async () => {
-          const id = await createNotification({
-            deliveryStatus: notificationStatus,
-            message: notificationMessage,
-            patientId: notificationPatientId,
-          });
-          return `Notification added. ID: ${id}`;
-        })} />
-      </View>
-
-      <View style={styles.card}>
         <Text style={styles.cardTitle}>Make an appointment</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={styles.muted}>
@@ -819,9 +815,7 @@ export default function AdminConsoleScreen() {
               ? `Patient: ${selectedUser.name || selectedUser.id} (${selectedUser.id})`
               : 'Search for and select a patient first.'}
           </Text>
-          {selectedUser && isAccountActive(selectedUser) && (
-            <Ionicons name="warning" size={17} color={theme.colors.warning} accessibilityLabel="Account is activated" />
-          )}
+          {selectedUser && <AccountVerificationIcon verified={isAccountActive(selectedUser)} size={17} />}
         </View>
         <Field label="Clinic ID" value={appointmentClinicId} onChange={setAppointmentClinicId} />
         <Field label="Date (YYYY-MM-DD)" value={appointmentDate} onChange={setAppointmentDate} placeholder="2026-10-09" />
@@ -856,8 +850,13 @@ export default function AdminConsoleScreen() {
           ? `Selected user: ${userForCalendar.name || userForCalendar.id}`
           : 'Selected user appointments'}
         appointments={selectedUserAppointments}
+        lastUpdated={appointmentsLastUpdated}
       />
-      <AppointmentCalendar title="All appointments" appointments={appointments} />
+      <AppointmentCalendar
+        title="All appointments"
+        appointments={appointments}
+        lastUpdated={appointmentsLastUpdated}
+      />
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>QR code tools</Text>
@@ -884,6 +883,7 @@ export default function AdminConsoleScreen() {
         </>
       )}
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -905,7 +905,7 @@ function useScreenStyles() {
   },
   page: {
     padding: theme.spacing.medium,
-    paddingTop: 40,
+    paddingTop: 0,
     paddingBottom: 48,
     backgroundColor: theme.colors.background,
   },

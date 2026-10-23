@@ -32,14 +32,16 @@ This application addresses that problem by providing a dedicated **Express Lane*
 | Frontend | React Native (Expo SDK 56) |
 | Language | TypeScript / JavaScript |
 | Navigation | Expo Router |
-| Backend | Firebase Cloud Functions (serverless) |
+| Backend | Firebase Authentication and Firestore |
 | Database | Firebase Firestore |
 | Authentication | Firebase Authentication (email and password) |
 | Local storage | AsyncStorage (React Native) |
 | QR generation | react-native-qrcode-svg |
 | QR scanning | expo-barcode-scanner |
-| Push notifications | Expo Notifications + Firebase Cloud Messaging |
+| Notifications | On-device scheduled reminders using Expo Notifications |
 | Styling | Custom theme system (themes.js) |
+
+Appointment reminders are scheduled locally for patients and doctors. Admin deletion-request alerts are detected when an admin device is connected to Firestore; local notifications cannot deliver a new Firestore alert to a device that is offline or has not synced the request.
 
 ---
 
@@ -114,7 +116,6 @@ ChronicClinicSystem/
 | `tokens` | Appointment check-in QR tokens, associated with a patient and appointment and tracked when redeemed |
 | `queue` | Clinic queue entries created when a patient checks in, with a status that staff can update |
 | `chronic-illnesses` | ICD-10 condition reference catalogue used when selecting chronic conditions; patient-specific health details are kept in local device storage, not in this collection |
-| `notifications` | Patient notification records, including message and delivery status |
 
 Clinic contact numbers are stored as part of clinic records; there is no separate `numbers` collection. The application also uses AsyncStorage for offline data and local health details; those are not Firestore collections.
 
@@ -204,9 +205,6 @@ This project was developed across six graded deliverables covering introduction,
 This project is licensed under the Academic Project Restricted Use License. See [LICENSE.md](LICENSE.md) for full terms.
 
 In summary: you may view and clone this repository for personal study and academic reference. You may not redistribute, commercially exploit, or present this work as your own.
-
-
-
 
 
 

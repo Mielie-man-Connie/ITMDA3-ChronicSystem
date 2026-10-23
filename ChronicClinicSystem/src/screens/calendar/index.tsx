@@ -37,6 +37,7 @@ import {
   type ThemePalette,
 } from '../../components/themes';
 import { useAppTheme } from '../../components/theme-provider';
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
 
 // ---------------------------------------------------------------
 // 1. TYPES AND CONSTANTS
@@ -454,9 +455,7 @@ function AppointmentStatusModal({
             <Text style={{ fontSize: ui.size - 1, color: ui.c.textSecondary }}>
               {appointment.patientName} · {formatLong(appointment.date)} at {appointment.timeSlot}
             </Text>
-            {appointment.accountActive && (
-              <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
-            )}
+            <AccountVerificationIcon verified={appointment.accountActive} size={17} />
           </View>
           <View style={[styles.chipWrap, { marginTop: Spacing.three }]}>
             {statuses.map((status) => (
@@ -695,9 +694,10 @@ function ScheduleModal({
             <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '600' }}>
               {result.name || 'Unnamed patient'}
             </Text>
-            {(result.accountVerified === true || result.accountStatus === 'active') && (
-              <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
-            )}
+            <AccountVerificationIcon
+              verified={result.accountVerified === true || result.accountStatus === 'active'}
+              size={17}
+            />
           </View>
           <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 2 }}>
             {result.phoneNumber || 'No phone number on profile'}
@@ -730,9 +730,10 @@ function ScheduleModal({
                   <Text style={{ color: ui.c.text, fontSize: ui.size, fontWeight: '700' }}>
                     {patient.name || 'Unnamed patient'} · {patient.phoneNumber || 'No phone'}
                   </Text>
-                  {(patient.accountVerified === true || patient.accountStatus === 'active') && (
-                    <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
-                  )}
+                  <AccountVerificationIcon
+                    verified={patient.accountVerified === true || patient.accountStatus === 'active'}
+                    size={17}
+                  />
                 </View>
                 <Text style={{ color: ui.c.primarylight, fontSize: ui.size - 2 }}>Tap to change</Text>
                 <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 3 }}>
@@ -912,6 +913,7 @@ export default function CalendarScreen() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selected, setSelected] = useState(todayKey);
   const [viewMonth, setViewMonth] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() });
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -991,6 +993,9 @@ export default function CalendarScreen() {
               }
             },
             resolvedRole === 'patient' ? profile.id : undefined,
+            (updatedAt: Date) => {
+              if (active) setLastUpdated(updatedAt);
+            },
           );
         } catch (error) {
           if (active) {
@@ -1446,9 +1451,7 @@ export default function CalendarScreen() {
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
                         <Text style={{ fontSize: ui.size - 1, fontWeight: '600', color: ui.c.text }}>{a.patientName}</Text>
-                        {a.accountActive && (
-                          <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
-                        )}
+                        <AccountVerificationIcon verified={a.accountActive} size={17} />
                       </View>
                       <Text style={{ fontSize: ui.size - 4, color: ui.c.textSecondary }}>
                         {formatLong(a.date)} at {a.timeSlot} • {TYPE_LABEL[a.type]}
@@ -1474,9 +1477,10 @@ export default function CalendarScreen() {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
                       <Text style={{ fontSize: ui.size - 1, fontWeight: '600', color: ui.c.text }}>{p.name}</Text>
-                      {(p.accountVerified === true || p.accountStatus === 'active') && (
-                        <Ionicons name="warning" size={17} color={ui.c.warning} accessibilityLabel="Account is activated" />
-                      )}
+                      <AccountVerificationIcon
+                        verified={p.accountVerified === true || p.accountStatus === 'active'}
+                        size={17}
+                      />
                     </View>
                     <Text style={{ fontSize: ui.size - 4, color: ui.c.textSecondary }}>{upcomingCount(p.id)} upcoming booking(s)</Text>
                   </View>
@@ -1510,6 +1514,10 @@ export default function CalendarScreen() {
             onSelect={setSelected}
             ui={ui}
           />
+
+          <Text style={{ color: ui.c.textSecondary, fontSize: ui.size - 4, textAlign: 'center' }}>
+            Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Waiting for server'}
+          </Text>
 
           <Pressable onPress={() => goToDate(todayKey)} style={styles.todayButton} accessibilityRole="button">
             <Text style={{ fontSize: ui.size - 2, fontWeight: '700', color: ui.c.primarylight }}>Jump to today</Text>

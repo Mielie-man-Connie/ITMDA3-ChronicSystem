@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Firebase service functions — never call Firebase directly from this file
 import {
@@ -38,6 +39,7 @@ import { Link, useFocusEffect, type Href } from 'expo-router';
 // Update this import path to wherever your BottomHotbar component lives
 import BottomHotbar from '../../components/BottomHotbar';
 import { useAppTheme } from '@/components/theme-provider';
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper — converts Firestore date values (Timestamp, ISO string, or Date)
@@ -164,7 +166,7 @@ export default function HomeScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
@@ -237,10 +239,9 @@ export default function HomeScreen() {
 
       <BottomHotbar
         role={role}
-        navigation={navigation}
         activeItem={null}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -401,9 +402,7 @@ function DoctorHome({
                 <Text style={styles.patientName}>
                   {patient.name || 'Unnamed patient'}
                 </Text>
-                {isAccountActive(patient) && (
-                  <Ionicons name="warning" size={18} color={theme.colors.warning} accessibilityLabel="Account is activated" />
-                )}
+                <AccountVerificationIcon verified={isAccountActive(patient)} size={18} />
               </View>
 
             </View>
@@ -432,6 +431,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   },
   contentContainer: {
     padding: 18,
+    paddingTop: 0,
     paddingBottom: 30,
   },
   messageContainer: {

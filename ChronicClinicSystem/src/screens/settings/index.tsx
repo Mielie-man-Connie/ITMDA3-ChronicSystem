@@ -25,6 +25,8 @@ import {
   updateUserProfile,
 } from '@/services/firebase';
 import { clearLocalHealthData } from '@/services/cache';
+import { publishNotificationPreferences } from '@/services/notifications';
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
 
 import {
   Spacing,
@@ -499,6 +501,12 @@ export default function SettingsScreen() {
 
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+      if (key === 'pushNotifications' || key === 'reminderTime') {
+        publishNotificationPreferences({
+          enabled: newSettings.pushNotifications,
+          reminderTime: newSettings.reminderTime,
+        });
+      }
     } catch (error) {
       console.log('Could not save settings', error);
     }
@@ -656,9 +664,7 @@ export default function SettingsScreen() {
               <Text style={{ fontSize: size + 3, fontWeight: '700', color: ui.c.text }}>
                 {user?.name || 'Loading profile…'}
               </Text>
-              {user?.accountActive && (
-                <Ionicons name="warning" size={18} color={ui.c.warning} accessibilityLabel="Account is activated" />
-              )}
+              {user && <AccountVerificationIcon verified={user.accountActive} size={18} />}
             </View>
             <Text style={{ fontSize: size - 3, color: ui.c.textSecondary, marginTop: 3 }}>
               {user?.email || profileError || ''}
@@ -753,17 +759,35 @@ export default function SettingsScreen() {
           <Row
             icon="notifications-outline"
             tint={ui.c.warning}
-            label="Push notifications"
-            hint="Appointment reminders from the clinic"
+            label="Local appointment notifications"
+            hint="Appointment reminders scheduled on this device"
             ui={ui}
             right={
               <Toggle
-                label="Push notifications"
+                label="Local appointment notifications"
                 value={settings.pushNotifications}
                 onChange={(value) => updateSetting('pushNotifications', value)}
                 ui={ui}
               />
             }
+          />
+          <Row
+            icon="time-outline"
+            tint={ui.c.primarylight}
+            label="Remind me 1 day before"
+            hint="Schedule appointment reminders one day in advance"
+            ui={ui}
+            onPress={() => updateSetting('reminderTime', 'day')}
+            right={settings.reminderTime === 'day' ? <Ionicons name="checkmark" size={22} color={ui.c.primarylight} /> : undefined}
+          />
+          <Row
+            icon="time-outline"
+            tint={ui.c.primarylight}
+            label="Remind me 2 hours before"
+            hint="Schedule appointment reminders two hours in advance"
+            ui={ui}
+            onPress={() => updateSetting('reminderTime', 'hours')}
+            right={settings.reminderTime === 'hours' ? <Ionicons name="checkmark" size={22} color={ui.c.primarylight} /> : undefined}
           />
         </Group>
 

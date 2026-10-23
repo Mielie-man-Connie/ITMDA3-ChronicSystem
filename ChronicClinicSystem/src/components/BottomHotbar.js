@@ -84,7 +84,7 @@ const HOTBAR_CONFIG = {
 };
 
 export default function BottomHotbar({
-    role, navigation, activeItem,
+    role, activeItem,
 }) {
     const { theme } = useAppTheme();
     // Accept both Firestore role codes and their longer display names.

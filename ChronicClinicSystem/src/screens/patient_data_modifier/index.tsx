@@ -9,10 +9,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/components/theme-provider';
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
 import {
   getChronicIllnesses,
   getCurrentUserProfile,
@@ -92,6 +93,20 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
     content: { padding: 16, paddingBottom: 32 },
+    homeHeader: {
+      width: '100%',
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      marginBottom: 12,
+    },
+    homeButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.backgroundElement,
+    },
     card: {
       padding: 18,
       marginBottom: 14,
@@ -223,6 +238,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
 }
 
 export default function PatientDataModifierScreen() {
+  const router = useRouter();
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const params = useLocalSearchParams<{
@@ -360,20 +376,39 @@ export default function PatientDataModifierScreen() {
     );
   };
 
+  const homeButton = (
+    <View style={styles.homeHeader}>
+      <Pressable
+        onPress={() => router.push('/')}
+        accessibilityRole="button"
+        accessibilityLabel="Home"
+        style={styles.homeButton}
+      >
+        <Ionicons name="home" size={22} color={theme.colors.text} />
+      </Pressable>
+    </View>
+  );
+
   if (loading) {
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: 'Patient data', headerShown: true }} />
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        {homeButton}
+        <View style={[styles.center, { flex: 1 }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       </View>
     );
   }
 
   if (!patient) {
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: 'Patient data', headerShown: true }} />
-        <Text style={styles.error}>{error || 'Could not load patient details.'}</Text>
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        {homeButton}
+        <View style={[styles.center, { flex: 1 }]}>
+          <Text style={styles.error}>{error || 'Could not load patient details.'}</Text>
+        </View>
       </View>
     );
   }
@@ -381,18 +416,12 @@ export default function PatientDataModifierScreen() {
   const displayedName = patient.name || 'Patient';
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Stack.Screen options={{ title: 'Patient data', headerShown: true }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      {homeButton}
       <View style={styles.card}>
         <View style={styles.patientNameRow}>
           <Text style={styles.patientName}>{displayedName}</Text>
-          {active && (
-            <Ionicons
-              name="warning"
-              size={24}
-              color={theme.colors.warning}
-              accessibilityLabel="Account is activated"
-            />
-          )}
+          <AccountVerificationIcon verified={active} size={24} />
         </View>
         <Text style={styles.label}>Patient name</Text>
         <TextInput value={displayedName} editable={false} style={styles.readonly} />

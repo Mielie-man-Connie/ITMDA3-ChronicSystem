@@ -42,7 +42,6 @@ export default function HomeScreen({ user }) {
 
             <BottomHotbar
                 role={role}
-                navigation={navigation}
                 activeItem={null}
             />
         </View>

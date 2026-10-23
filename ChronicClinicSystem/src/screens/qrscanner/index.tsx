@@ -12,6 +12,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/components/theme-provider';
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
 import {
   getCurrentUserProfile,
   getPatientAppointments,
@@ -545,14 +546,7 @@ export default function QrScannerScreen() {
           <ScrollView>
             <View style={styles.nameRow}>
               <Text style={styles.panelTitle}>{patient.name || 'Patient'}</Text>
-              {isAccountActive(patient) && (
-                <Ionicons
-                  name="warning"
-                  size={23}
-                  color={theme.colors.warning}
-                  accessibilityLabel="Account is activated"
-                />
-              )}
+              <AccountVerificationIcon verified={isAccountActive(patient)} size={23} />
             </View>
             <Text style={styles.detail}><Text style={styles.detailLabel}>User ID: </Text>{patient.id}</Text>
             <Text style={styles.detail}><Text style={styles.detailLabel}>Local ID: </Text>{payload.localId}</Text>
@@ -595,14 +589,7 @@ export default function QrScannerScreen() {
         <View style={styles.panel}>
           <View style={styles.nameRow}>
             <Text style={styles.panelTitle}>{patient.name || 'Patient'}</Text>
-            {isAccountActive(patient) && (
-              <Ionicons
-                name="warning"
-                size={23}
-                color={theme.colors.warning}
-                accessibilityLabel="Account is activated"
-              />
-            )}
+            <AccountVerificationIcon verified={isAccountActive(patient)} size={23} />
           </View>
           <Text style={styles.detail}>Phone: {patient.phoneNumber || 'Not provided'}</Text>
           <Text style={styles.detail}>ID number: {patient.idNumber || 'Not provided'}</Text>
