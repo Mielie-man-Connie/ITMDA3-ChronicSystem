@@ -25,6 +25,9 @@ export default function SignupScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const containsLetters = (str: string): boolean => {
+    return /[a-zA-Z]/.test(str);
+  }
 
   const handleSignup = async () => {
     if (
@@ -38,6 +41,14 @@ export default function SignupScreen() {
       Alert.alert('Missing information', 'Please complete all fields.');
       return;
     }
+     if (phoneNumber.length < 10 || containsLetters(phoneNumber)) {
+       Alert.alert('Invalid phone number', 'Please enter a valid phone number');
+       return;
+     }
+     if (idNumber.length < 13 || containsLetters(idNumber)) {
+       Alert.alert('Invalid ID number', 'Please enter a valid ID number');
+       return;
+     }
     if (!email.includes('@')) {
       Alert.alert('Invalid email', 'Enter a valid email address.');
       return;
