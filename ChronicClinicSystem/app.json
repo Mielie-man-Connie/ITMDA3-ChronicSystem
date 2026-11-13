@@ -37,7 +37,6 @@
           "imageWidth": 76
         }
       ],
-      "expo-barcode-scanner",
       "expo-web-browser",
       "expo-notifications"
     ],
