@@ -8,7 +8,12 @@
     "scheme": "chronicclinicsystem",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "This app uses Face ID / Touch ID to securely authenticate and protect your medical records and patient data."
+      },
+      "bundleIdentifier": "com.anonymous.ChronicClinicSystem"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +24,9 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ],
       "package": "com.anonymous.ChronicClinicSystem"
     },
@@ -37,9 +44,15 @@
           "imageWidth": 76
         }
       ],
-      "expo-barcode-scanner",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan QR codes."
+        }
+      ],
       "expo-web-browser",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-local-authentication"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -4,7 +4,6 @@ import {
   addPatientToQueue,
   bookAppointment,
   createClinic,
-  createNotification,
   getAllAppointments,
   getFirestoreCollections,
   getUserById,
@@ -223,9 +222,6 @@ export default function FBTestScreen() {
   const [clinicName, setClinicName] = useState('');
   const [clinicProvince, setClinicProvince] = useState('');
   const [clinicNumbers, setClinicNumbers] = useState('');
-  const [notificationPatientId, setNotificationPatientId] = useState('');
-  const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationStatus, setNotificationStatus] = useState('pending');
   const [appointmentClinicId, setAppointmentClinicId] = useState('');
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentTime, setAppointmentTime] = useState('');
@@ -388,7 +384,6 @@ export default function FBTestScreen() {
               setSelectedUser(user);
               setProfileName(user.name || '');
               setProfilePhone(user.phoneNumber || '');
-              setNotificationPatientId(user.id);
             }}
           >
             <Text style={styles.userName}>{user.name || 'Unnamed user'}</Text>
@@ -432,26 +427,6 @@ export default function FBTestScreen() {
             province: clinicProvince,
           });
           return `Clinic added. ID: ${id}`;
-        })} />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Send a notification</Text>
-        <Field
-          label="Patient ID"
-          value={notificationPatientId}
-          onChange={setNotificationPatientId}
-          placeholder={selectedUser?.id}
-        />
-        <Field label="Message" value={notificationMessage} onChange={setNotificationMessage} multiline />
-        <Field label="Delivery status" value={notificationStatus} onChange={setNotificationStatus} />
-        <Button title="Save notification" disabled={busy} onPress={() => void runAction(async () => {
-          const id = await createNotification({
-            deliveryStatus: notificationStatus,
-            message: notificationMessage,
-            patientId: notificationPatientId,
-          });
-          return `Notification added. ID: ${id}`;
         })} />
       </View>
 

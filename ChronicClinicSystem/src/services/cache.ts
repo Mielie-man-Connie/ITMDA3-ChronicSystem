@@ -48,6 +48,19 @@ type CachedRecord = {
 
 type ClinicUserList = 'patients' | 'doctors';
 
+type CachedAppointment = {
+  appointmentId: string;
+  tokenCode: string;
+  appointmentDate: string;
+  status: string;
+  patientId?: string;
+  expiresAt?: string;
+  timeSlot?: string;
+  clinicId?: string;
+  clinicName?: string;
+  appointmentType?: string;
+};
+
 async function readCachedRecordList(key: string): Promise<CachedRecord[] | null> {
   const stored = await AsyncStorage.getItem(key);
   if (stored === null) return null;
@@ -231,14 +244,14 @@ export async function getCachedClinicUsers(
  *   const { appointmentId, tokenCode } = await bookAppointment(uid, details);
  *   await cacheAppointment({ appointmentId, tokenCode, ...details, status: 'booked' });
  */
-export async function cacheAppointment(appointment) {
+export async function cacheAppointment(appointment: CachedAppointment) {
   if (!appointment.appointmentId || !appointment.tokenCode) {
     throw new Error('appointmentId and tokenCode are required to cache an appointment.');
   }
 
   try {
     const existing = await AsyncStorage.getItem(CACHED_APPOINTMENTS_KEY);
-    const appointments = existing ? JSON.parse(existing) : [];
+    const appointments: CachedAppointment[] = existing ? JSON.parse(existing) as CachedAppointment[] : [];
 
     // Replace the appointment if it was already cached (e.g. status update),
     // otherwise add it as a new entry.
@@ -268,7 +281,7 @@ export async function cacheAppointment(appointment) {
  *   const cached = await getCachedAppointments();
  *   cached.forEach(a => console.log(a.tokenCode));
  */
-export async function getCachedAppointments() {
+export async function getCachedAppointments(): Promise<CachedAppointment[]> {
   try {
     const data = await AsyncStorage.getItem(CACHED_APPOINTMENTS_KEY);
     return data ? JSON.parse(data) : [];
@@ -292,7 +305,7 @@ export async function getCachedAppointments() {
  *     // next.tokenCode is what you pass to the QRCode component
  *   }
  */
-export async function getNextCachedAppointment() {
+export async function getNextCachedAppointment(): Promise<CachedAppointment | null> {
   try {
     const appointments = await getCachedAppointments();
     const now = new Date();
@@ -327,7 +340,7 @@ export async function getNextCachedAppointment() {
  *   await cancelAppointment(appointmentId);           // updates Firestore
  *   await updateCachedAppointmentStatus(appointmentId, 'cancelled'); // updates device
  */
-export async function updateCachedAppointmentStatus(appointmentId, newStatus) {
+export async function updateCachedAppointmentStatus(appointmentId: string, newStatus: string) {
   if (!appointmentId || !newStatus) {
     throw new Error('appointmentId and newStatus are required.');
   }
@@ -336,7 +349,7 @@ export async function updateCachedAppointmentStatus(appointmentId, newStatus) {
     const existing = await AsyncStorage.getItem(CACHED_APPOINTMENTS_KEY);
     if (!existing) return; // nothing cached, nothing to update
 
-    const appointments = JSON.parse(existing);
+    const appointments: CachedAppointment[] = JSON.parse(existing) as CachedAppointment[];
     const updated = appointments.map((a) =>
       a.appointmentId === appointmentId ? { ...a, status: newStatus } : a
     );
@@ -389,7 +402,7 @@ export async function clearCachedAppointments() {
  *   const qrData = JSON.parse(scannedQRString);
  *   await saveLocalHealthData(qrData.chronicConditions, qrData.medicationList);
  */
-export async function saveLocalHealthData(chronicConditions, medicationList) {
+export async function saveLocalHealthData(chronicConditions: string[], medicationList: string[]) {
   if (!Array.isArray(chronicConditions) || !Array.isArray(medicationList)) {
     throw new Error('chronicConditions and medicationList must both be arrays.');
   }

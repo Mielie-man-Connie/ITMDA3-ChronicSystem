@@ -36,14 +36,14 @@ export default function PatientTabs() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size + 2} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size + 2} color={typeof color === 'number' ? colors.primary : color ?? colors.primary} />,
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
           title: 'Calendar',
-          tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size + 2} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size + 2} color={typeof color === 'number' ? colors.primary : color ?? colors.primary} />,
         }}
       />
       <Tabs.Screen
@@ -52,21 +52,21 @@ export default function PatientTabs() {
           title: 'QR code',
           headerShown: false,
           header: () => null,
-          tabBarIcon: ({ color, size }) => <Ionicons name="qr-code" size={size + 2} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="qr-code" size={size + 2} color={typeof color === 'number' ? colors.primary : color ?? colors.primary} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size + 2} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size + 2} color={typeof color === 'number' ? colors.primary : color ?? colors.primary} />,
         }}
       />
       <Tabs.Screen
         name="emergency"
         options={{
           title: 'Emergency',
-          tabBarIcon: ({ color, size }) => <Ionicons name="call" size={size + 2} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="call" size={size + 2} color={typeof color === 'number' ? colors.primary : color ?? colors.primary} />,
         }}
       />
     </Tabs>
