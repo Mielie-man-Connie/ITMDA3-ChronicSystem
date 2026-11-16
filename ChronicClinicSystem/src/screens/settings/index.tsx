@@ -1,22 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  Switch,
+  Alert,
+  Image,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Alert,
-  Modal,
+  Switch,
+  Text,
   TextInput,
-  Platform,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Firebase imports for live authentication and role fetching
+import { AccountVerificationIcon } from '@/components/account-verification-icon';
+import { clearLocalHealthData } from '@/services/cache';
 import {
   getCurrentUserProfile,
   logoutUser,
@@ -24,21 +29,33 @@ import {
   sendCurrentUserPasswordReset,
   updateUserProfile,
 } from '@/services/firebase';
-import { clearLocalHealthData } from '@/services/cache';
-import { publishNotificationPreferences } from '@/services/notifications';
-import { AccountVerificationIcon } from '@/components/account-verification-icon';
 
+import { useAppTheme } from '@/components/theme-provider';
 import {
-  Spacing,
   BottomTabInset,
   MaxContentWidth,
+  Spacing,
   type ThemeMode,
   type ThemePalette,
 } from '@/constants/theme';
-import { useAppTheme } from '@/components/theme-provider';
 
 type Role = 'doctor' | 'patient' | 'receptionist';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+// Shape of the profile returned by getCurrentUserProfile() in firebase.js
+type UserProfile = {
+  id: string;
+  name?: string;
+  email?: string;
+  phoneNumber?: string;
+  idNumber?: string;
+  homeAddress?: string;
+  profileImage?: string;
+  role?: string;
+  clinicId?: string;
+  accountVerified?: boolean;
+  accountStatus?: string;
+};
 
 type Settings = {
   themeMode: ThemeMode;
@@ -52,6 +69,7 @@ type Settings = {
   dailySummary: boolean;
   queueChime: boolean;
   vibrateOnScan: boolean;
+  biometricLogin: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -66,6 +84,7 @@ const DEFAULT_SETTINGS: Settings = {
   dailySummary: true,
   queueChime: true,
   vibrateOnScan: true,
+  biometricLogin: false,
 };
 
 const LANGUAGES = [
@@ -316,6 +335,7 @@ function EditProfileModal({
   phoneNumber,
   idNumber,
   homeAddress,
+  profileImage,
   ui,
   onClose,
   onSave,
@@ -325,14 +345,16 @@ function EditProfileModal({
   phoneNumber: string;
   idNumber: string;
   homeAddress: string;
+  profileImage: string;
   ui: UI;
   onClose: () => void;
-  onSave: (name: string, phoneNumber: string, idNumber: string, homeAddress: string) => Promise<void>;
+  onSave: (name: string, phoneNumber: string, idNumber: string, homeAddress: string, profileImage: string) => Promise<void>;
 }) {
   const [draftName, setDraftName] = useState(name);
   const [draftPhone, setDraftPhone] = useState(phoneNumber);
   const [draftIdNumber, setDraftIdNumber] = useState(idNumber);
   const [draftHomeAddress, setDraftHomeAddress] = useState(homeAddress);
+  const [draftImage, setDraftImage] = useState(profileImage);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -342,13 +364,33 @@ function EditProfileModal({
     setDraftPhone(phoneNumber);
     setDraftIdNumber(idNumber);
     setDraftHomeAddress(homeAddress);
+    setDraftImage(profileImage);
     setSaveError('');
-  }, [visible, name, phoneNumber, idNumber, homeAddress]);
+  }, [visible, name, phoneNumber, idNumber, homeAddress, profileImage]);
+
+  const pickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      showMessage('Permission required', 'Permission to access gallery is required to change profile picture.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setDraftImage(result.assets[0].uri);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(draftName.trim(), draftPhone.trim(), draftIdNumber.trim(), draftHomeAddress.trim());
+      await onSave(draftName.trim(), draftPhone.trim(), draftIdNumber.trim(), draftHomeAddress.trim(), draftImage);
       onClose();
       setSaveError('');
     } catch (error) {
@@ -358,11 +400,31 @@ function EditProfileModal({
     }
   };
 
+  const initials = (draftName || '')
+    .split(' ')
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 2);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.profileOverlay}>
         <View style={[styles.profileSheet, { backgroundColor: ui.c.background }]}>
           <Text style={{ color: ui.c.text, fontSize: ui.size + 4, fontWeight: '700' }}>Edit profile</Text>
+
+          <Pressable onPress={pickImage} style={styles.avatarPickerContainer}>
+            {draftImage ? (
+              <Image source={{ uri: draftImage }} style={styles.modalAvatar} />
+            ) : (
+              <View style={[styles.modalAvatarPlaceholder, { backgroundColor: ui.c.primarylight }]}>
+                <Text style={{ color: ui.c.onPrimary, fontSize: ui.size + 8, fontWeight: '700' }}>{initials}</Text>
+              </View>
+            )}
+            <Text style={{ color: ui.c.primarylight, fontSize: ui.size - 2, fontWeight: '600', marginTop: 6 }}>
+              Change profile picture
+            </Text>
+          </Pressable>
+
           <TextInput
             value={draftName}
             onChangeText={setDraftName}
@@ -430,6 +492,7 @@ export default function SettingsScreen() {
     phoneNumber: string;
     idNumber: string;
     homeAddress: string;
+    profileImage?: string;
     accountActive: boolean;
   } | null>(null);
   const [profileError, setProfileError] = useState('');
@@ -437,11 +500,13 @@ export default function SettingsScreen() {
 
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showLanguages, setShowLanguages] = useState(false);
+  const [hasBiometricHardware, setHasBiometricHardware] = useState(false);
+  const [biometricType, setBiometricType] = useState('Biometrics');
 
   useEffect(() => {
     let active = true;
     getCurrentUserProfile()
-      .then((profile) => {
+      .then((profile: UserProfile) => {
         if (!active) return;
         const role: Role =
           profile.role === 'd' || profile.role === 'doctor'
@@ -456,6 +521,7 @@ export default function SettingsScreen() {
           phoneNumber: profile.phoneNumber || '',
           idNumber: profile.idNumber || '',
           homeAddress: profile.homeAddress || '',
+          profileImage: profile.profileImage || '',
           role,
           accountActive: profile.accountVerified === true || profile.accountStatus === 'active',
         });
@@ -464,7 +530,6 @@ export default function SettingsScreen() {
       .catch((error: unknown) => {
         if (!active) return;
         setProfileError(error instanceof Error ? error.message : String(error));
-        console.error('Could not load the signed-in user profile.', error);
       });
     return () => {
       active = false;
@@ -472,6 +537,21 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
+    // Check device biometric capabilities
+    const checkBiometrics = async () => {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      setHasBiometricHardware(compatible);
+      if (compatible) {
+        const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+        if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+          setBiometricType('Face ID');
+        } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+          setBiometricType('Fingerprint');
+        }
+      }
+    };
+    void checkBiometrics();
+
     const loadSettings = async () => {
       try {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
@@ -486,10 +566,22 @@ export default function SettingsScreen() {
       }
     };
 
-    loadSettings();
+    void loadSettings();
   }, []);
 
   const updateSetting = async <K extends keyof Settings>(key: K, value: Settings[K]) => {
+    if (key === 'biometricLogin' && value === true) {
+      // Prompt biometric authentication verification before enabling
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: `Authenticate with ${biometricType} to enable security`,
+        fallbackLabel: 'Use Passcode',
+      });
+      if (!authResult.success) {
+        showMessage('Authentication Failed', 'Could not verify biometrics. Setting was not enabled.');
+        return;
+      }
+    }
+
     const newSettings = {
       ...settings,
       [key]: value,
@@ -501,12 +593,6 @@ export default function SettingsScreen() {
 
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
-      if (key === 'pushNotifications' || key === 'reminderTime') {
-        publishNotificationPreferences({
-          enabled: newSettings.pushNotifications,
-          reminderTime: newSettings.reminderTime,
-        });
-      }
     } catch (error) {
       console.log('Could not save settings', error);
     }
@@ -530,27 +616,11 @@ export default function SettingsScreen() {
     .join('')
     .slice(0, 2);
 
-  const handleSaveProfile = async (name: string, phoneNumber: string, idNumber: string, homeAddress: string) => {
+  const handleSaveProfile = async (name: string, phoneNumber: string, idNumber: string, homeAddress: string, profileImage: string) => {
     if (!user) return;
-    if (name.length < 2) {
-      showMessage('Name needed', 'Enter your full name.');
-      return;
-    }
-    if (!phoneNumber) {
-      showMessage('Phone number needed', 'Enter a phone number.');
-      return;
-    }
-    if (!idNumber) {
-      showMessage('ID number needed', 'Enter your ID number.');
-      return;
-    }
-    if (!homeAddress) {
-      showMessage('Home address needed', 'Enter your home address.');
-      return;
-    }
-    await updateUserProfile(user.id, { name, phoneNumber, idNumber, homeAddress });
-    setUser({ ...user, name, phoneNumber, idNumber, homeAddress });
-    showMessage('Profile updated', 'Your profile was saved to your account.');
+    await updateUserProfile(user.id, { name, phoneNumber, idNumber, homeAddress, profileImage });
+    setUser({ ...user, name, phoneNumber, idNumber, homeAddress, profileImage });
+    showMessage('Profile updated', 'Your profile was saved successfully.');
   };
 
   const handleChangePassword = async () => {
@@ -572,9 +642,7 @@ export default function SettingsScreen() {
       }
     };
     if (Platform.OS === 'web') {
-      if (window.confirm('Clear medical data?\n\nThis removes your conditions and medication from this device.')) {
-        void clear();
-      }
+      if (window.confirm('Clear medical data?')) void clear();
     } else {
       Alert.alert('Clear medical data?', 'This removes your conditions and medication from this device.', [
         { text: 'Cancel', style: 'cancel' },
@@ -587,15 +655,13 @@ export default function SettingsScreen() {
     const submitRequest = async () => {
       try {
         await requestAccountDeletion();
-        showMessage('Request submitted', 'Your account-deletion request was recorded. Please contact your clinic to complete the process.');
+        showMessage('Request submitted', 'Your account-deletion request was recorded.');
       } catch (error) {
         showMessage('Could not submit request', error instanceof Error ? error.message : String(error));
       }
     };
     if (Platform.OS === 'web') {
-      if (window.confirm('Request account deletion?\n\nYour clinic will need to complete the deletion process.')) {
-        void submitRequest();
-      }
+      if (window.confirm('Request account deletion?')) void submitRequest();
     } else {
       Alert.alert('Request account deletion?', 'Your clinic will need to complete the deletion process.', [
         { text: 'Cancel', style: 'cancel' },
@@ -655,9 +721,13 @@ export default function SettingsScreen() {
             borderLeftColor: ui.c.secondary,
           },
         ]}>
-          <View style={[styles.avatar, { backgroundColor: ui.c.primarylight }]}>
-            <Text style={[styles.avatarText, { color: ui.c.onPrimary, fontSize: size + 5 }]}>{initials}</Text>
-          </View>
+          {user?.profileImage ? (
+            <Image source={{ uri: user.profileImage }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: ui.c.primarylight }]}>
+              <Text style={[styles.avatarText, { color: ui.c.onPrimary, fontSize: size + 5 }]}>{initials}</Text>
+            </View>
+          )}
 
           <View style={styles.profileInfo}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -670,7 +740,7 @@ export default function SettingsScreen() {
               {user?.email || profileError || ''}
             </Text>
             <Text style={{ fontSize: size - 3, color: ui.c.primarylight, marginTop: 3 }}>
-              Tap to edit profile
+              Tap to edit profile & picture
             </Text>
             <Text style={{ fontSize: size - 3, color: ui.c.textSecondary, marginTop: 3 }}>
               {user?.phoneNumber || ''}
@@ -754,45 +824,33 @@ export default function SettingsScreen() {
             ))}
         </Group>
 
-        <SectionTitle title="Notifications" ui={ui} />
+        <SectionTitle title="Security & Authentication" ui={ui} />
         <Group ui={ui}>
-          <Row
-            icon="notifications-outline"
-            tint={ui.c.warning}
-            label="Local appointment notifications"
-            hint="Appointment reminders scheduled on this device"
-            ui={ui}
-            right={
-              <Toggle
-                label="Local appointment notifications"
-                value={settings.pushNotifications}
-                onChange={(value) => updateSetting('pushNotifications', value)}
-                ui={ui}
-              />
-            }
-          />
-          <Row
-            icon="time-outline"
-            tint={ui.c.primarylight}
-            label="Remind me 1 day before"
-            hint="Schedule appointment reminders one day in advance"
-            ui={ui}
-            onPress={() => updateSetting('reminderTime', 'day')}
-            right={settings.reminderTime === 'day' ? <Ionicons name="checkmark" size={22} color={ui.c.primarylight} /> : undefined}
-          />
-          <Row
-            icon="time-outline"
-            tint={ui.c.primarylight}
-            label="Remind me 2 hours before"
-            hint="Schedule appointment reminders two hours in advance"
-            ui={ui}
-            onPress={() => updateSetting('reminderTime', 'hours')}
-            right={settings.reminderTime === 'hours' ? <Ionicons name="checkmark" size={22} color={ui.c.primarylight} /> : undefined}
-          />
-        </Group>
-
-        <SectionTitle title="Security" ui={ui} />
-        <Group ui={ui}>
+          {hasBiometricHardware ? (
+            <Row
+              icon={biometricType === 'Face ID' ? 'scan-outline' : 'finger-print-outline'}
+              tint={ui.c.primarylight}
+              label={`Enable ${biometricType} Unlock`}
+              hint={`Secure app access with your device's ${biometricType}`}
+              ui={ui}
+              right={
+                <Toggle
+                  label={`Enable ${biometricType} Unlock`}
+                  value={settings.biometricLogin}
+                  onChange={(value) => void updateSetting('biometricLogin', value)}
+                  ui={ui}
+                />
+              }
+            />
+          ) : (
+            <Row
+              icon="finger-print-outline"
+              tint={ui.c.muted}
+              label="Biometric Authentication"
+              hint="Not supported or disabled on this device"
+              ui={ui}
+            />
+          )}
           <Row
             icon="key-outline"
             tint={ui.c.primarydark}
@@ -840,6 +898,7 @@ export default function SettingsScreen() {
         phoneNumber={user?.phoneNumber || ''}
         idNumber={user?.idNumber || ''}
         homeAddress={user?.homeAddress || ''}
+        profileImage={user?.profileImage || ''}
         ui={ui}
         onClose={() => setProfileModalVisible(false)}
         onSave={handleSaveProfile}
@@ -874,6 +933,9 @@ const styles = StyleSheet.create({
   profileAction: { flex: 1, alignItems: 'center', paddingVertical: Spacing.three, borderRadius: 12 },
   avatar: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   avatarText: { fontWeight: '700' },
+  avatarPickerContainer: { alignSelf: 'center', alignItems: 'center', marginBottom: Spacing.two },
+  modalAvatar: { width: 80, height: 80, borderRadius: 40 },
+  modalAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
   roleBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, marginTop: 6 },
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.5 },
   logoutSection: { marginTop: Spacing.four },

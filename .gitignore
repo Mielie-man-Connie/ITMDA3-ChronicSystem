@@ -49,7 +49,6 @@ Thumbs.db
 # Firebase Specific
 # ==========================================
 # Temporary generated CLI cache
-firebaseConfig.js
 
 .firebase/
 firebase-debug.log
@@ -59,3 +58,13 @@ firebase-debug.*.log
 # your Firebase client app credentials to source control (e.g. using CI/CD secrets):
 android/app/google-services.json
 ios/GoogleService-Info.plist
+# Added for the ChronicClinicSystem subfolder
+*.zip
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+**/android/app/google-services.json
+**/ios/Pods/
+**/ios/build/
+**/ios/GoogleService-Info.plist
+*.sdk57-backup

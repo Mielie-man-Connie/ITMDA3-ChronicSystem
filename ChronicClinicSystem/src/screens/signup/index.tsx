@@ -1,3 +1,7 @@
+import { useAppTheme } from '@/components/theme-provider';
+import { VitaQueueLogo } from '@/components/VitaQueueLogo';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,10 +14,23 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type TextInputProps,
 } from 'react-native';
-import { router } from 'expo-router';
 import { registerUser } from '../../services/firebase';
-import { useAppTheme } from '@/components/theme-provider';
+
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
+type SignupStyles = ReturnType<typeof createStyles>;
+
+// Alert.alert is unreliable on React Native Web — it can silently no-op.
+// This falls back to a real browser alert on web, and uses the native
+// Alert everywhere else.
+function showAlert(title: string, message: string) {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
 
 export default function SignupScreen() {
   const { theme } = useAppTheme();
@@ -25,11 +42,15 @@ export default function SignupScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  // Display-only state (no effect on sign-up)
+  const [showPassword, setShowPassword] = useState(false);
   const containsLetters = (str: string): boolean => {
     return /[a-zA-Z]/.test(str);
   }
 
   const handleSignup = async () => {
+    console.log('handleSignup called', { name, phoneNumber, idNumber, homeAddress, email, passwordLength: password.length });
+
     if (
       !name.trim() ||
       !phoneNumber.trim() ||
@@ -38,26 +59,32 @@ export default function SignupScreen() {
       !email.trim() ||
       !password
     ) {
-      Alert.alert('Missing information', 'Please complete all fields.');
+      console.log('Blocked: missing a required field');
+      showAlert('Missing information', 'Please complete all fields.');
       return;
     }
      if (phoneNumber.length < 10 || containsLetters(phoneNumber)) {
-       Alert.alert('Invalid phone number', 'Please enter a valid phone number');
+       console.log('Blocked: invalid phone number', phoneNumber.length);
+       showAlert('Invalid phone number', 'Please enter a valid phone number');
        return;
      }
      if (idNumber.length < 13 || containsLetters(idNumber)) {
-       Alert.alert('Invalid ID number', 'Please enter a valid ID number');
+       console.log('Blocked: invalid ID number, length was', idNumber.length);
+       showAlert('Invalid ID number', 'Please enter a valid 13-digit ID number');
        return;
      }
     if (!email.includes('@')) {
-      Alert.alert('Invalid email', 'Enter a valid email address.');
+      console.log('Blocked: invalid email');
+      showAlert('Invalid email', 'Enter a valid email address.');
       return;
     }
     if (password.length < 6) {
-      Alert.alert('Invalid password', 'Password must be at least 6 characters.');
+      console.log('Blocked: password too short');
+      showAlert('Invalid password', 'Password must be at least 6 characters.');
       return;
     }
 
+    console.log('Validation passed, calling registerUser...');
     setLoading(true);
     try {
       await registerUser(email.trim(), password, {
@@ -66,20 +93,28 @@ export default function SignupScreen() {
         idNumber: idNumber.trim(),
         homeAddress: homeAddress.trim(),
       });
+      console.log('registerUser succeeded');
     } catch (error) {
+      console.log('registerUser failed', error);
       const message = error instanceof Error ? error.message : 'Something went wrong.';
       if (message.includes('email-already-in-use')) {
-        Alert.alert('Signup failed', 'An account already exists for this email.');
+        showAlert('Signup failed', 'An account already exists for this email.');
       } else if (message.includes('invalid-email')) {
-        Alert.alert('Signup failed', 'Enter a valid email address.');
+        showAlert('Signup failed', 'Enter a valid email address.');
       } else if (message.includes('weak-password')) {
-        Alert.alert('Signup failed', 'Choose a stronger password.');
+        showAlert('Signup failed', 'Choose a stronger password.');
       } else {
-        Alert.alert('Signup failed', message);
+        showAlert('Signup failed', message);
       }
     } finally {
       setLoading(false);
     }
+  };
+
+  const fieldProps = {
+    styles,
+    placeholderColor: theme.colors.secondary,
+    iconColor: theme.colors.secondary,
   };
 
   return (
@@ -88,101 +123,185 @@ export default function SignupScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Text style={styles.title}>Create account</Text>
-          <Text style={styles.subtitle}>Sign up for Chronic-Clinic</Text>
-        </View>
+        <View style={styles.inner}>
+          {/* Logo and app name */}
+          <View style={styles.header}>
+            <VitaQueueLogo size={42} />
+          </View>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>Full name</Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Your full name"
-            placeholderTextColor={theme.colors.secondary}
-            autoCapitalize="words"
-            autoComplete="name"
-          />
+          <View style={styles.card}>
+            <Text style={styles.title}>Create account</Text>
+            <Text style={styles.subtitle}>Sign up for VitaQueue</Text>
 
-          <Text style={styles.label}>Phone number</Text>
-          <TextInput
-            style={styles.input}
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            placeholder="Your phone number"
-            placeholderTextColor={theme.colors.secondary}
-            keyboardType="phone-pad"
-            autoComplete="tel"
-          />
+            <Text style={styles.sectionLabel}>About you</Text>
 
-          <Text style={styles.label}>ID number</Text>
-          <TextInput
-            style={styles.input}
-            value={idNumber}
-            onChangeText={setIdNumber}
-            placeholder="Your ID number"
-            placeholderTextColor={theme.colors.secondary}
-            keyboardType="default"
-            autoCapitalize="characters"
-          />
+            <FormField
+              {...fieldProps}
+              label="Full name"
+              icon="person-outline"
+              value={name}
+              onChangeText={setName}
+              placeholder="Your full name"
+              autoCapitalize="words"
+              autoComplete="name"
+            />
 
-          <Text style={styles.label}>Home address</Text>
-          <TextInput
-            style={[styles.input, styles.addressInput]}
-            value={homeAddress}
-            onChangeText={setHomeAddress}
-            placeholder="Your home address"
-            placeholderTextColor={theme.colors.secondary}
-            autoComplete="street-address"
-            multiline
-          />
+            <FormField
+              {...fieldProps}
+              label="Phone number"
+              icon="call-outline"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              placeholder="Your phone number"
+              keyboardType="phone-pad"
+              autoComplete="tel"
+            />
 
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="name@example.com"
-            placeholderTextColor={theme.colors.secondary}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-          />
+            <FormField
+              {...fieldProps}
+              label="ID number"
+              icon="card-outline"
+              value={idNumber}
+              onChangeText={setIdNumber}
+              placeholder="Your ID number"
+              keyboardType="default"
+              autoCapitalize="characters"
+            />
 
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="At least 6 characters"
-            placeholderTextColor={theme.colors.secondary}
-            secureTextEntry
-            autoComplete="new-password"
-          />
+            <FormField
+              {...fieldProps}
+              label="Home address"
+              icon="home-outline"
+              value={homeAddress}
+              onChangeText={setHomeAddress}
+              placeholder="Your home address"
+              autoComplete="street-address"
+              multiline
+            />
 
-          <TouchableOpacity
-            style={[styles.primaryButton, loading && styles.disabledButton]}
-            onPress={handleSignup}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            {loading ? (
-              <ActivityIndicator color={theme.colors.onPrimary} />
-            ) : (
-              <Text style={styles.primaryButtonText}>Create account</Text>
-            )}
-          </TouchableOpacity>
+            <Text style={styles.sectionLabel}>Your login</Text>
 
-          <View style={styles.loginRow}>
-            <Text style={styles.subtitle}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => router.back()}>
-              <Text style={styles.loginLink}>Sign in</Text>
+            <FormField
+              {...fieldProps}
+              label="Email"
+              icon="mail-outline"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="name@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+            />
+
+            <FormField
+              {...fieldProps}
+              label="Password"
+              icon="lock-closed-outline"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="At least 6 characters"
+              secureTextEntry={!showPassword}
+              autoComplete="new-password"
+              rightElement={
+                <TouchableOpacity
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color={theme.colors.secondary}
+                  />
+                </TouchableOpacity>
+              }
+            />
+
+            <TouchableOpacity
+              style={[styles.primaryButton, loading && styles.disabledButton]}
+              onPress={handleSignup}
+              disabled={loading}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
+              {loading ? (
+                <ActivityIndicator color={theme.colors.onPrimary} />
+              ) : (
+                <Text style={styles.primaryButtonText}>Create account</Text>
+              )}
             </TouchableOpacity>
+
+            <View style={styles.loginRow}>
+              <Text style={styles.loginText}>Already have an account? </Text>
+              <TouchableOpacity onPress={() => router.back()}>
+                <Text style={styles.loginLink}>Sign in</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+// A labelled input with an icon. It keeps its own focus state so only the
+// focused field is highlighted. Defined outside SignupScreen so the keyboard
+// does not close while typing.
+function FormField({
+  label,
+  icon,
+  styles,
+  placeholderColor,
+  iconColor,
+  rightElement,
+  multiline,
+  onFocus,
+  onBlur,
+  ...inputProps
+}: Omit<TextInputProps, 'style' | 'placeholderTextColor'> & {
+  label: string;
+  icon: IconName;
+  styles: SignupStyles;
+  placeholderColor: string;
+  iconColor: string;
+  rightElement?: React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+
+  return (
+    <View>
+      <Text style={styles.label}>{label}</Text>
+      <View
+        style={[
+          styles.inputWrap,
+          multiline ? styles.inputWrapMultiline : null,
+          focused ? styles.inputWrapFocused : null,
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={20}
+          color={iconColor}
+          style={multiline ? styles.iconTop : undefined}
+        />
+        <TextInput
+          {...inputProps}
+          multiline={multiline}
+          placeholderTextColor={placeholderColor}
+          style={[styles.input, multiline ? styles.addressInput : null]}
+          onFocus={(event) => {
+            setFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
+        />
+        {rightElement}
+      </View>
+    </View>
   );
 }
 
@@ -195,70 +314,115 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     padding: theme.spacing.large,
+  },
+  inner: {
+    width: '100%',
+    maxWidth: 440,
   },
   header: {
     alignItems: 'center',
-    marginBottom: theme.spacing.xlarge,
+    marginBottom: theme.spacing.large,
+  },
+  card: {
+    backgroundColor: theme.colors.secondarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.secondaryBorder,
+    borderRadius: 16,
+    padding: theme.spacing.large,
+    shadowColor: '#0F2E38',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
   title: {
-    fontSize: theme.fontSizes.title,
+    fontSize: theme.fontSizes.heading,
     fontWeight: '700',
     color: theme.colors.darkest,
-    marginBottom: theme.spacing.small,
   },
   subtitle: {
     fontSize: theme.fontSizes.body,
     color: theme.colors.secondary,
+    marginTop: 4,
   },
-  form: {
-    gap: theme.spacing.small,
+  sectionLabel: {
+    fontSize: theme.fontSizes.small,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: theme.colors.primary,
+    marginTop: theme.spacing.large,
   },
   label: {
     fontSize: theme.fontSizes.small,
     fontWeight: '600',
-    color: theme.colors.primary,
-    marginTop: theme.spacing.small,
+    color: theme.colors.darkest,
+    marginTop: theme.spacing.medium,
+    marginBottom: 6,
   },
-  input: {
-    height: 48,
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 50,
     paddingHorizontal: theme.spacing.medium,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: theme.colors.secondaryBorder,
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.secondarySurface,
+    backgroundColor: theme.colors.background,
+  },
+  inputWrapMultiline: {
+    height: 90,
+    alignItems: 'flex-start',
+  },
+  inputWrapFocused: {
+    borderColor: theme.colors.primary,
+  },
+  iconTop: {
+    marginTop: 14,
+  },
+  input: {
+    flex: 1,
+    height: '100%',
     fontSize: theme.fontSizes.body,
     color: theme.colors.darkest,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
   },
   addressInput: {
-    height: 80,
-    paddingTop: theme.spacing.small,
+    paddingTop: 13,
     textAlignVertical: 'top',
   },
   primaryButton: {
-    height: 50,
+    height: 52,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: theme.spacing.medium,
+    marginTop: theme.spacing.large,
     borderRadius: theme.borderRadius,
-    backgroundColor: theme.colors.secondarylight,
+    backgroundColor: theme.colors.primary,
   },
   disabledButton: {
-    backgroundColor: theme.colors.light,
+    opacity: 0.6,
   },
   primaryButtonText: {
     fontSize: theme.fontSizes.body,
     fontWeight: '700',
-    color: theme.colors.onSecondary,
+    color: theme.colors.onPrimary,
   },
   loginRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: theme.spacing.small,
+    flexWrap: 'wrap',
+    marginTop: theme.spacing.medium,
+  },
+  loginText: {
+    fontSize: theme.fontSizes.body,
+    color: theme.colors.secondary,
   },
   loginLink: {
     fontSize: theme.fontSizes.body,
-    fontWeight: '600',
+    fontWeight: '700',
     color: theme.colors.primary,
   },
   });

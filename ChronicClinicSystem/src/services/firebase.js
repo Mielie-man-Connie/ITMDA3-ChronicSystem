@@ -46,6 +46,28 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 
+/**
+ * @typedef {Object} UserProfile
+ * @property {string} id
+ * @property {string=} name
+ * @property {string=} email
+ * @property {string=} phoneNumber
+ * @property {string=} idNumber
+ * @property {string=} homeAddress
+ * @property {string=} role
+ * @property {string=} clinicId
+ * @property {boolean=} accountVerified
+ * @property {string=} accountStatus
+ */
+
+/**
+ * @template T
+ * @param {() => Promise<T>} fetchRemote
+ * @param {() => Promise<T | null | undefined>} readCache
+ * @param {(value: T) => Promise<unknown>} writeCache
+ * @param {string} label
+ * @returns {Promise<T>}
+ */
 // cache.js handles all AsyncStorage (offline/local storage) operations.
 // bookAppointment imports cacheAppointment from here to store the token
 // locally after writing it to Firestore.
@@ -101,7 +123,7 @@ async function fetchWithLocalCache(fetchRemote, readCache, writeCache, label) {
  * @param {string} password       - The user's password (min 6 characters)
  * @param {object} additionalData - Must include name, phoneNumber, idNumber, and homeAddress
  *                                  Optional: role (string) — defaults to 'p' (patient)
- * @returns {object} Firebase Auth user object containing uid, email, etc.
+ * @returns {Promise<import('firebase/auth').User>} Firebase Auth user containing uid, email, etc.
  * @throws If a required profile field is missing, or if the email is already registered
  *
  * Usage example:
@@ -163,7 +185,7 @@ export async function registerUser(email, password, additionalData = {}) {
  *
  * @param {string} email    - The user's registered email address
  * @param {string} password - The user's password
- * @returns {object} Firebase Auth user object
+ * @returns {Promise<import('firebase/auth').User>} Firebase Auth user
  * @throws If the email is not registered or the password is wrong
  *
  * Usage example:
@@ -205,7 +227,7 @@ export async function logoutUser() {
  * For the currently signed-in user, use getCurrentUserProfile() instead.
  *
  * @param {string} uid - The Firebase Auth user ID
- * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, idNumber?: string, homeAddress?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
+ * @returns {Promise<UserProfile>}
  * @throws If no document exists for that UID
  *
  * Usage example:
@@ -285,7 +307,7 @@ export async function setPatientAccountActivation(uid, active) {
  * Use this in screens that need the logged-in user's data without having
  * to pass the uid around. HomeScreen and ProfileScreen both use this.
  *
- * @returns {Promise<{id: string, name?: string, email?: string, phoneNumber?: string, idNumber?: string, homeAddress?: string, role?: string, clinicId?: string, accountVerified?: boolean, accountStatus?: string}>}
+ * @returns {Promise<UserProfile>}
  * @throws If no user is signed in
  *
  * Usage example:
